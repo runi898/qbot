@@ -251,7 +251,8 @@ class JDNewsModule(BaseModule):
             return None
 
         # 调试：打印完整的result数据
-        print(f"[{self.name}] API返回数据: {result}")
+        if self.config.get("debug", False):
+            print(f"[{self.name}] API返回数据: {result}")
 
         title = result.get("title") or "未知商品"
         title_display = title[:30] + "..." if len(title) > 30 else title
@@ -306,7 +307,8 @@ class JDNewsModule(BaseModule):
                 mapping.setdefault(int(qq), [])
                 mapping[int(qq)].extend(groups)
         
-        print(f"[{self.name}] 构建的收集器群组映射: {mapping}")
+        if self.config.get("debug", False):
+            print(f"[{self.name}] 构建的收集器群组映射: {mapping}")
         return mapping
 
     def _build_forward_targets(self) -> Dict[int, List[int]]:
