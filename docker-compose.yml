@@ -15,6 +15,7 @@ services:
 
     # 挂载配置文件和数据库
     volumes:
+      - .:/app
       - ./config.py:/app/config.py:ro
       - ./messages.db:/app/messages.db
       - ./news.db:/app/news.db
