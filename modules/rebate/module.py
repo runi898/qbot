@@ -136,26 +136,33 @@ class RebateModule(BaseModule):
     
     async def can_handle(self, message: str, context: ModuleContext) -> bool:
         """判断消息中是否包含淘宝或京东链接"""
-        print(f"[{self.name}] can_handle 检查: group_id={context.group_id}, user_id={context.user_id}, self_id={context.self_id}")
-        print(f"[{self.name}] 监听群列表: {self.watched_groups}")
+        # 从配置中读取 debug 标记，默认为 False
+        debug = self.config.get("debug", False)
+        
+        if debug:
+            print(f"[{self.name}] can_handle 检查: group_id={context.group_id}, user_id={context.user_id}, self_id={context.self_id}")
+            print(f"[{self.name}] 监听群列表: {self.watched_groups}")
         
         # 跳过机器人自己的消息
         if context.user_id == context.self_id:
-            print(f"[{self.name}] 跳过机器人自己的消息")
+            if debug:
+                print(f"[{self.name}] 跳过机器人自己的消息")
             return False
         
         # 处理私聊消息（group_id 为 None）
         if context.group_id is None:
-            print(f"[{self.name}] 私聊消息，检查是否包含链接")
+            if debug:
+                print(f"[{self.name}] 私聊消息，检查是否包含链接")
             # 私聊消息也处理，检查是否包含淘宝或京东链接
             has_link = bool(self.taobao_regex.search(message) or self.jingdong_regex.search(message))
-            if has_link:
+            if has_link and debug:
                 print(f"[{self.name}] 私聊消息包含链接，将处理")
             return has_link
         
         # 只处理监听群的消息
         if context.group_id not in self.watched_groups:
-            print(f"[{self.name}] 群 {context.group_id} 不在监听列表中")
+            if debug:
+                print(f"[{self.name}] 群 {context.group_id} 不在监听列表中")
             return False
         
         # 检查是否包含淘宝或京东链接

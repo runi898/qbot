@@ -219,18 +219,22 @@ class JDNewsModule(BaseModule):
         print(f"[{self.name}] 模块已加载 (v{self.version})")
 
     async def can_handle(self, message: str, context: ModuleContext) -> bool:
-        print(f"[{self.name}] can_handle 检查: group_id={context.group_id}, self_id={context.self_id}")
-        print(f"[{self.name}] 收集器群组: {self.collector_groups}")
+        if self.config.get("debug", False):
+            print(f"[{self.name}] can_handle 检查: group_id={context.group_id}, self_id={context.self_id}")
+            print(f"[{self.name}] 收集器群组: {self.collector_groups}")
         
         if context.group_id is None:
-            print(f"[{self.name}] group_id 为 None，跳过")
+            if self.config.get("debug", False):
+                print(f"[{self.name}] group_id 为 None，跳过")
             return False
         if not self._is_collector_group(context.self_id, context.group_id):
-            print(f"[{self.name}] 群 {context.group_id} 不是收集器群组")
+            if self.config.get("debug", False):
+                print(f"[{self.name}] 群 {context.group_id} 不是收集器群组")
             return False
         
         has_jd = self.collector.has_jd_link(message)
-        print(f"[{self.name}] 消息包含京东链接: {has_jd}")
+        if self.config.get("debug", False):
+            print(f"[{self.name}] 消息包含京东链接: {has_jd}")
         return has_jd
 
     async def handle(self, message: str, context: ModuleContext) -> Optional[ModuleResponse]:
