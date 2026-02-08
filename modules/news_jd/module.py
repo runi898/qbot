@@ -19,7 +19,7 @@ from typing import Optional, Dict, List
 
 from core.base_module import BaseModule, ModuleContext, ModuleResponse
 from modules.news_collector.database import news_db
-from config import NEWS_COLLECTOR_CONFIG, NEWS_FORWARDER_CONFIG, JINGDONG_CONFIG
+from config import NEWS_COLLECTOR_CONFIG, NEWS_FORWARDER_CONFIG, JINGDONG_CONFIG, DEBUG_MODE
 
 
 class JDNewsCollector:
@@ -53,15 +53,16 @@ class JDNewsCollector:
         return None
 
     async def convert_jd_link(self, url: str) -> Optional[Dict]:
-        """????????????????????????"""
-        print(f"[JDCollector] ????????: {url}")
+        """京东链接转换"""
+        if DEBUG_MODE:
+            print(f"[{self.name}] 开始转换京东链接: {url}")
         try:
             appkey = JINGDONG_CONFIG.get("appkey") or self.api_config.get("key")
             union_id = JINGDONG_CONFIG.get("union_id")
             position_id = JINGDONG_CONFIG.get("position_id")
 
             if not appkey or not union_id:
-                print("[JDCollector] ?????API?????(appkey/union_id)")
+                print(f"[{self.name}] 错误：京东API配置不完整(appkey/union_id)")
                 return None
 
             api_url = "http://api.zhetaoke.com:20000/api/open_jing_union_open_promotion_byunionid_get.ashx"
@@ -74,22 +75,26 @@ class JDNewsCollector:
                 "signurl": 5,
             }
 
-            print(f"[JDCollector] API????: {params}")
+            if DEBUG_MODE:
+                print(f"[{self.name}] API请求参数: {params}")
 
             async with aiohttp.ClientSession() as session:
-                print(f"[JDCollector] ??API???: {api_url}")
+                if DEBUG_MODE:
+                    print(f"[{self.name}] 发送API请求到: {api_url}")
                 async with session.get(api_url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    print(f"[JDCollector] API?????: {response.status}")
+                    if DEBUG_MODE:
+                        print(f"[{self.name}] API响应状态码: {response.status}")
 
                     if response.status != 200:
-                        print(f"[JDCollector] API????????: {response.status}")
+                        print(f"[{self.name}] API请求失败，状态码: {response.status}")
                         return None
 
                     resp_text = await response.text()
-                    print(f"[JDCollector] API????: {resp_text[:500]}...")
+                    if DEBUG_MODE:
+                        print(f"[{self.name}] API原始响应: {resp_text[:500]}...")
                     data = json.loads(resp_text)
 
-                    # ???
+                    # 尝试解析新格式
                     if "jd_union_open_promotion_byunionid_get_response" in data:
                         response_body = data["jd_union_open_promotion_byunionid_get_response"]
                         result_str = response_body.get("result")
@@ -107,7 +112,7 @@ class JDNewsCollector:
                                     )
                                     return {
                                         "item_id": content.get("skuId") or content.get("sku_id"),
-                                        "title": content.get("title") or "????",
+                                        "title": content.get("title") or "京东商品",
                                         "short_url": short_url,
                                         "long_url": short_url,
                                         "price": content.get("price"),
@@ -115,9 +120,9 @@ class JDNewsCollector:
                                         "pict_url": pict_url,
                                     }
                             except json.JSONDecodeError:
-                                print("[JDCollector] ??result JSON??")
+                                print(f"[{self.name}] 解析result JSON失败")
 
-                    # ?????
+                    # 旧格式解析（保留作为备用）
                     if data.get("status") == 200 and data.get("content"):
                         content = data["content"][0]
                         short_url = content.get("shorturl") or content.get("shortUrl")
@@ -137,7 +142,8 @@ class JDNewsCollector:
                             "pict_url": pict_url,
                         }
 
-                    print(f"[JDCollector] API??????: {data}")
+                    if DEBUG_MODE:
+                        print(f"[{self.name}] API返回状态异常: {data}")
 
         except asyncio.TimeoutError:
             print("[JDCollector] ?????API????(>10s)")
@@ -256,7 +262,10 @@ class JDNewsModule(BaseModule):
 
         title = result.get("title") or "未知商品"
         title_display = title[:30] + "..." if len(title) > 30 else title
-        print(f"[{self.name}] 收集到京东线报: {title_display}")
+        if DEBUG_MODE:
+            title = result.get("title") or "未知商品"
+            title_display = title[:30] + "..." if len(title) > 30 else title
+            print(f"[{self.name}] 收集到京东线报: {title_display}")
 
         item_id = result.get("item_id")
         if not item_id:
@@ -265,10 +274,12 @@ class JDNewsModule(BaseModule):
 
         news_id = await news_db.insert_news(result)
         if news_id is None:
-            print(f"[{self.name}] 线报重复或保存失败，跳过")
+            if DEBUG_MODE:
+                print(f"[{self.name}] 线报重复或保存失败，跳过")
             return None
         
-        print(f"[{self.name}] 线报已保存到数据库，ID: {news_id}")
+        if DEBUG_MODE:
+            print(f"[{self.name}] 线报已保存到数据库，ID: {news_id}")
 
         # 1) 当前群需要回复
         if context.group_id in self.collector.reply_groups:
@@ -278,11 +289,14 @@ class JDNewsModule(BaseModule):
 
         # 2) 转发到 targets（由当前账号发送）
         targets = self.forward_targets.get(int(context.self_id), [])
-        print(f"[{self.name}] 转发目标群: {targets}")
+        if DEBUG_MODE:
+            print(f"[{self.name}] 转发目标群: {targets}")
         for target_group in targets:
-            print(f"[{self.name}] 正在转发到群 {target_group}")
+            if DEBUG_MODE:
+                print(f"[{self.name}] 正在转发到群 {target_group}")
             await self._send_to_group(context, target_group, result.get("converted_message", ""))
-            print(f"[{self.name}] 已转发到群 {target_group}")
+            if DEBUG_MODE:
+                print(f"[{self.name}] 已转发到群 {target_group}")
 
         return None
 
@@ -307,7 +321,7 @@ class JDNewsModule(BaseModule):
                 mapping.setdefault(int(qq), [])
                 mapping[int(qq)].extend(groups)
         
-        if self.config.get("debug", False):
+        if DEBUG_MODE:
             print(f"[{self.name}] 构建的收集器群组映射: {mapping}")
         return mapping
 
@@ -393,6 +407,7 @@ class JDNewsModule(BaseModule):
                     "params": {"group_id": group_id, "message": message},
                 }
                 await context.ws.send_text(__import__("json").dumps(payload))
-                print(f"[{self.name}] 已发送到群 {group_id}")
+                if DEBUG_MODE:
+                    print(f"[{self.name}] 已发送到群 {group_id}")
         except Exception as e:
             print(f"[{self.name}] 发送失败: {e}")
