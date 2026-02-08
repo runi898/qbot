@@ -53,14 +53,15 @@ class JDNewsCollector:
         return None
 
     async def convert_jd_link(self, url: str) -> Optional[Dict]:
-        print(f"[JDCollector] 开始转换京东链接: {url}")
+        """????????????????????????"""
+        print(f"[JDCollector] ????????: {url}")
         try:
             appkey = JINGDONG_CONFIG.get("appkey") or self.api_config.get("key")
             union_id = JINGDONG_CONFIG.get("union_id")
             position_id = JINGDONG_CONFIG.get("position_id")
 
             if not appkey or not union_id:
-                print("[JDCollector] 错误：京东API配置不完整(appkey/union_id)")
+                print("[JDCollector] ?????API?????(appkey/union_id)")
                 return None
 
             api_url = "http://api.zhetaoke.com:20000/api/open_jing_union_open_promotion_byunionid_get.ashx"
@@ -72,72 +73,81 @@ class JDNewsCollector:
                 "chainType": 3,
                 "signurl": 5,
             }
-            
-            print(f"[JDCollector] API请求参数: {params}")
+
+            print(f"[JDCollector] API????: {params}")
 
             async with aiohttp.ClientSession() as session:
-                print(f"[JDCollector] 发送API请求到: {api_url}")
+                print(f"[JDCollector] ??API???: {api_url}")
                 async with session.get(api_url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    print(f"[JDCollector] API响应状态码: {response.status}")
-                    
-                    if response.status == 200:
-                        resp_text = await response.text()
-                        print(f"[JDCollector] API原始响应: {resp_text[:500]}...")
-                        
-                        data = json.loads(resp_text)
-                        
-                        # 尝试解析新格式
-                        if "jd_union_open_promotion_byunionid_get_response" in data:
-                            response_body = data["jd_union_open_promotion_byunionid_get_response"]
-                            result_str = response_body.get("result")
-                            if result_str:
-                                try:
-                                    result_json = json.loads(result_str)
-                                    if result_json.get("code") == 200 and result_json.get("data"):
-                                        content = result_json["data"]
-                                        short_url = content.get("shortURL") or content.get("clickURL")
-                                        
-                                        # 新接口返回的信息较少，主要是转链后的URL
-                                        result = {
-                                            "item_id": None, # 新接口可能不直接返回ID
-                                            "title": "京东商品", # 新接口可能不返回标题
-                                            "short_url": short_url,
-                                            "long_url": short_url,
-                                            "price": None,
-                                            "commission": None,
-                                        }
-                                        print(f"[JDCollector] 转换成功(新格式): {short_url}")
-                                        return result
-                                except json.JSONDecodeError:
-                                    print("[JDCollector] 解析result JSON失败")
-                        
-                        # 旧格式解析（保留作为备用）
-                        if data.get("status") == 200 and data.get("content"):
-                            content = data["content"][0]
-                            short_url = content.get("shorturl") or content.get("shortUrl")
-                            result = {
-                                "item_id": content.get("skuId") or content.get("sku_id") or content.get("tao_id"),
-                                "title": content.get("skuName") or content.get("name") or content.get("title") or content.get("tao_title"),
-                                "short_url": short_url,
-                                "long_url": content.get("materialUrl") or content.get("coupon_click_url"),
-                                "price": content.get("price") or content.get("finalPrice") or content.get("quanhou_jiage"),
-                                "commission": content.get("commisionShare") or content.get("tkfee3"),
-                            }
-                            print(f"[JDCollector] 转换成功: {result}")
-                            return result
-                        else:
-                            print(f"[JDCollector] API返回状态异常: {data}")
-                    else:
-                        print(f"[JDCollector] API请求失败，状态码: {response.status}")
-                        
+                    print(f"[JDCollector] API?????: {response.status}")
+
+                    if response.status != 200:
+                        print(f"[JDCollector] API????????: {response.status}")
+                        return None
+
+                    resp_text = await response.text()
+                    print(f"[JDCollector] API????: {resp_text[:500]}...")
+                    data = json.loads(resp_text)
+
+                    # ???
+                    if "jd_union_open_promotion_byunionid_get_response" in data:
+                        response_body = data["jd_union_open_promotion_byunionid_get_response"]
+                        result_str = response_body.get("result")
+                        if result_str:
+                            try:
+                                result_json = json.loads(result_str)
+                                if result_json.get("code") == 200 and result_json.get("data"):
+                                    content = result_json["data"]
+                                    short_url = content.get("shortURL") or content.get("clickURL")
+                                    pict_url = (
+                                        content.get("pict_url")
+                                        or content.get("pic_url")
+                                        or content.get("imageUrl")
+                                        or content.get("imgUrl")
+                                    )
+                                    return {
+                                        "item_id": content.get("skuId") or content.get("sku_id"),
+                                        "title": content.get("title") or "????",
+                                        "short_url": short_url,
+                                        "long_url": short_url,
+                                        "price": content.get("price"),
+                                        "commission": content.get("commission"),
+                                        "pict_url": pict_url,
+                                    }
+                            except json.JSONDecodeError:
+                                print("[JDCollector] ??result JSON??")
+
+                    # ?????
+                    if data.get("status") == 200 and data.get("content"):
+                        content = data["content"][0]
+                        short_url = content.get("shorturl") or content.get("shortUrl")
+                        pict_url = (
+                            content.get("pict_url")
+                            or content.get("pic_url")
+                            or content.get("imageUrl")
+                            or content.get("imgUrl")
+                        )
+                        return {
+                            "item_id": content.get("skuId") or content.get("sku_id") or content.get("tao_id"),
+                            "title": content.get("skuName") or content.get("name") or content.get("title") or content.get("tao_title"),
+                            "short_url": short_url,
+                            "long_url": content.get("materialUrl") or content.get("coupon_click_url"),
+                            "price": content.get("price") or content.get("finalPrice") or content.get("quanhou_jiage"),
+                            "commission": content.get("commisionShare") or content.get("tkfee3"),
+                            "pict_url": pict_url,
+                        }
+
+                    print(f"[JDCollector] API??????: {data}")
+
         except asyncio.TimeoutError:
-            print("[JDCollector] 超时：京东API请求超时(>10s)")
+            print("[JDCollector] ?????API????(>10s)")
         except Exception as e:
-            print(f"[JDCollector] 错误：京东API调用失败: {e}")
+            print(f"[JDCollector] ?????API????: {e}")
             import traceback
             traceback.print_exc()
 
         return None
+
 
     async def process_message(self, message: str, context: Dict) -> Optional[Dict]:
         if not self.has_jd_link(message):
@@ -161,6 +171,7 @@ class JDNewsCollector:
             "converted_url": converted.get("short_url"),
             "original_message": message,
             "converted_message": converted_message,
+            "pict_url": converted.get("pict_url"),
             "source_qq": context.get("qq"),
             "source_group": context.get("group_id"),
             "price": converted.get("price"),
