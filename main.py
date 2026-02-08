@@ -1453,7 +1453,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     
     # 启动数据库清理任务
     from modules.news_database import news_db
-    asyncio.create_task(news_db.start_cleanup_task(interval=60))
+    asyncio.create_task(news_db.start_cleanup_task(interval=10, retention_seconds=40))
     print("[系统] 线报数据库清理任务已启动（每60秒清理一次）")
     
     await asyncio.gather(
