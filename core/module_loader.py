@@ -1,0 +1,277 @@
+"""
+ModuleLoader - 模块加载器
+
+负责扫描、加载、管理所有功能模块
+"""
+
+import os
+import importlib
+import importlib.util
+import inspect
+import json
+from pathlib import Path
+from typing import List, Optional, Dict, Any
+
+from .base_module import BaseModule, ModuleContext, ModuleResponse
+from .event_bus import EventBus
+
+
+class ModuleLoader:
+    """模块加载器"""
+    
+    def __init__(self, modules_dir: str = "modules"):
+        """
+        初始化模块加载器
+        
+        Args:
+            modules_dir: 模块目录路径
+        """
+        self.modules_dir = Path(modules_dir)
+        self.modules: List[BaseModule] = []
+        self._module_map: Dict[str, BaseModule] = {}
+        self.event_bus = EventBus()
+        
+    async def load_all_modules(self) -> None:
+        """加载所有模块"""
+        print(f"[ModuleLoader] 开始从 {self.modules_dir} 加载模块...")
+        
+        if not self.modules_dir.exists():
+            print(f"[ModuleLoader] 警告: 模块目录不存在: {self.modules_dir}")
+            return
+        
+        # 遍历模块目录
+        for module_dir in self.modules_dir.iterdir():
+            if not module_dir.is_dir() or module_dir.name.startswith('_'):
+                continue
+            
+            await self._load_module_from_dir(module_dir)
+        
+        # 按优先级排序
+        self.modules.sort(key=lambda m: m.priority)
+        
+        # 发布模块加载完成事件
+        await self.event_bus.emit('modules_loaded', {
+            'count': len(self.modules),
+            'modules': [m.name for m in self.modules]
+        })
+        
+        print(f"[ModuleLoader] 成功加载 {len(self.modules)} 个模块")
+        for module in self.modules:
+            status = "✅" if module.enabled else "❌"
+            print(f"  {status} {module.name} (v{module.version}) - 优先级: {module.priority}")
+    
+    async def load_module_from_path(self, module_path: str, config: dict) -> None:
+        """
+        从指定路径加载单个模块
+        
+        Args:
+            module_path: 模块路径（相对于当前目录），如 'modules/news_jd'
+            config: 模块配置
+        """
+        module_dir = Path(module_path)
+        
+        if not module_dir.exists():
+            raise FileNotFoundError(f"模块目录不存在: {module_dir}")
+        
+        await self._load_module_from_dir(module_dir, config)
+        
+        # 重新排序
+        self.modules.sort(key=lambda m: m.priority)
+    
+    async def _load_module_from_dir(self, module_dir: Path, external_config: dict = None) -> None:
+        """
+        从目录加载模块
+        
+        Args:
+            module_dir: 模块目录
+            external_config: 外部传入的配置（优先级最高）
+        """
+        module_file = module_dir / "module.py"
+        config_file = module_dir / "config.json"
+        
+        if not module_file.exists():
+            print(f"[ModuleLoader] 跳过 {module_dir.name}: 缺少 module.py")
+            return
+        
+        try:
+            # 配置优先级：external_config > config.py > config.json
+            config = {}
+            
+            if external_config is not None:
+                # 使用外部传入的配置
+                config = external_config
+                print(f"[ModuleLoader] 使用外部配置加载 {module_dir.name}")
+            else:
+                # 优先从统一配置文件读取配置
+                try:
+                    import config as global_config
+                    config = global_config.get_module_config(module_dir.name)
+                    print(f"[ModuleLoader] 从 config.py 加载 {module_dir.name} 配置")
+                except (ImportError, AttributeError):
+                    # 如果统一配置不存在，则从 config.json 读取
+                    if config_file.exists():
+                        with open(config_file, 'r', encoding='utf-8') as f:
+                            config = json.load(f)
+                        print(f"[ModuleLoader] 从 config.json 加载 {module_dir.name} 配置")
+            
+            # 动态导入模块
+            module_name = f"modules.{module_dir.name}.module"
+            spec = importlib.util.spec_from_file_location(module_name, module_file)
+            
+            if spec is None or spec.loader is None:
+                print(f"[ModuleLoader] 无法加载模块: {module_dir.name}")
+                return
+            
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            
+            # 查找 BaseModule 的子类
+            for name, obj in inspect.getmembers(module, inspect.isclass):
+                if issubclass(obj, BaseModule) and obj is not BaseModule:
+                    # 实例化模块
+                    instance = obj()
+                    
+                    # 检查是否启用
+                    if config.get('enabled', True) is False:
+                        instance.enabled = False
+                    
+                    # 设置优先级
+                    if 'priority' in config:
+                        instance.priority = config['priority']
+                    
+                    # 调用加载钩子（传递完整配置）
+                    await instance.on_load(config)
+                    
+                    # 注册模块
+                    self.modules.append(instance)
+                    self._module_map[instance.name] = instance
+                    
+                    print(f"[ModuleLoader] 加载模块: {instance.name} (v{instance.version})")
+                    break
+                    
+        except Exception as e:
+            print(f"[ModuleLoader] 加载模块 {module_dir.name} 失败: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    async def process_message(self, message: str, context: ModuleContext) -> Optional[ModuleResponse]:
+        """
+        处理消息，找到合适的模块并执行
+        
+        Args:
+            message: 清理后的消息内容
+            context: 消息上下文
+            
+        Returns:
+            ModuleResponse: 模块响应，如果没有模块处理则返回 None
+        """
+        # 打印接收到的消息（用于调试）
+        try:
+            from config import VERBOSE_LOGGING
+            if VERBOSE_LOGGING.get("enabled", False) and VERBOSE_LOGGING.get("message_received", False):
+                print(f"[MESSAGE_RECEIVED] 群{context.group_id} | 用户{context.user_id}: {message[:50]}...")
+        except:
+            pass
+        
+        for module in self.modules:
+            if not module.enabled:
+                continue
+            
+            try:
+                if await module.can_handle(message, context):
+                    # 打印模块处理日志
+                    try:
+                        from config import VERBOSE_LOGGING
+                        if VERBOSE_LOGGING.get("enabled", False) and VERBOSE_LOGGING.get("module_handling", False):
+                            print(f"[MODULE_HANDLING] 模块 '{module.name}' 正在处理消息")
+                    except:
+                        pass
+                    
+                    # 发布消息处理前事件
+                    await self.event_bus.emit('before_handle', {
+                        'module': module.name,
+                        'message': message
+                    }, source=module.name)
+                    
+                    response = await module.handle(message, context)
+                    
+                    # 发布消息处理后事件
+                    if response:
+                        await self.event_bus.emit('after_handle', {
+                            'module': module.name,
+                            'response': response.content
+                        }, source=module.name)
+                    
+                    return response
+                    
+            except Exception as e:
+                print(f"[ModuleLoader] 模块 {module.name} 执行出错: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        return None
+    
+    def get_module(self, name: str) -> Optional[BaseModule]:
+        """根据名称获取模块"""
+        return self._module_map.get(name)
+    
+    async def enable_module(self, name: str) -> bool:
+        """启用模块"""
+        module = self.get_module(name)
+        if module:
+            await module.on_enable()
+            return True
+        return False
+    
+    async def disable_module(self, name: str) -> bool:
+        """禁用模块"""
+        module = self.get_module(name)
+        if module:
+            await module.on_disable()
+            return True
+        return False
+    
+    async def reload_module(self, name: str) -> bool:
+        """重新加载指定模块"""
+        module = self.get_module(name)
+        if not module:
+            return False
+        
+        try:
+            # 卸载旧模块
+            await module.on_unload()
+            
+            # 移除旧模块
+            self.modules.remove(module)
+            del self._module_map[name]
+            
+            # 重新加载所有模块
+            await self.load_all_modules()
+            
+            return True
+        except Exception as e:
+            print(f"[ModuleLoader] 重新加载模块 {name} 失败: {e}")
+            return False
+    
+    def get_all_modules_info(self) -> str:
+        """获取所有模块的信息"""
+        info = "=== 已加载模块列表 ===\n\n"
+        for module in self.modules:
+            status = "✅ 已启用" if module.enabled else "❌ 已禁用"
+            info += f"{status} {module.name} (v{module.version})\n"
+            info += f"  描述: {module.description}\n"
+            info += f"  作者: {module.author}\n"
+            info += f"  优先级: {module.priority}\n\n"
+        return info
+    
+    async def unload_all(self) -> None:
+        """卸载所有模块"""
+        for module in self.modules:
+            try:
+                await module.on_unload()
+            except Exception as e:
+                print(f"[ModuleLoader] 卸载模块 {module.name} 失败: {e}")
+        
+        self.modules.clear()
+        self._module_map.clear()
+        print("[ModuleLoader] 所有模块已卸载")

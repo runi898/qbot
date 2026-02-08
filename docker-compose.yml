@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  qbot:
+    build: .
+    container_name: qbot
+    restart: unless-stopped
+    
+    # 端口映射
+    ports:
+      - "5670:5670"
+    
+    # 环境变量
+    environment:
+      - TZ=Asia/Shanghai
+      - PYTHONUNBUFFERED=1
+    
+    # 挂载配置文件和数据库
+    volumes:
+      - ./config.py:/app/config.py:ro
+      - ./messages.db:/app/messages.db
+      - ./news.db:/app/news.db
+      - ./exports:/app/exports
+      - ./logs:/app/logs
+    
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 5670)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # 日志配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # 网络模式
+    network_mode: bridge
+
+# 可选：添加数据库备份服务
+  backup:
+    image: alpine:latest
+    container_name: qbot-backup
+    restart: unless-stopped
+    volumes:
+      - ./messages.db:/data/messages.db:ro
+      - ./backups:/backups
+    command: >
+      sh -c "while true; do
+        cp /data/messages.db /backups/messages_$(date +%Y%m%d_%H%M%S).db;
+        find /backups -name 'messages_*.db' -mtime +7 -delete;
+        sleep 86400;
+      done"

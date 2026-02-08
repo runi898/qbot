@@ -1,0 +1,265 @@
+
+"""
+QBot 统一配置文件 (示例)
+
+请将此文件重命名为 config.py 并填写实际配置信息。
+"""
+
+# ========== 全局配置 ==========
+
+# 调试模式
+DEBUG_MODE = True  # True 显示日志，False 不显示
+
+# 详细日志配置（控制业务日志）
+VERBOSE_LOGGING = {
+    "enabled": True,  # 总开关：True=打印详细日志，False=只打印基础日志
+    "message_received": True,  # 接收到的消息
+    "message_processing": True,  # 消息处理过程
+    "module_handling": True,  # 模块处理日志
+    "forward_logs": True,  # 转发日志
+    "api_calls": True,  # API调用日志
+}
+
+
+# OneBot 服务器配置
+
+ONEBOT_HOST = "0.0.0.0"
+ONEBOT_PORT = 5670
+
+
+# ========== 数据库配置 ==========
+
+# 数据库文件路径
+DATABASE_FILE = "messages.db"
+
+# 自动清理配置
+AUTO_CLEANUP_ENABLED = True  # 是否启用自动清理
+CLEANUP_DAYS = 1  # 保留多少天的数据
+CLEANUP_HOUR = 3  # 每天几点清理（24小时制）
+
+# ========== API 配置 ==========
+
+# 折淘客 API 配置
+TAOBAO_CONFIG = {
+    "app_key": "",  # 你的折淘客 APP_KEY
+    "sid": "",  # 你的折淘客 SID
+    "pid": "",  # 你的淘宝联盟 PID
+    "relation_id": "",  # 你的渠道 ID
+}
+
+# 折京客 API 配置
+JINGDONG_CONFIG = {
+    "appkey": "",  # 你的折京客 APPKEY
+    "union_id": "",  # 你的京东联盟 ID
+    "position_id": "",  # 你的推广位 ID
+}
+
+# 京推推 API 配置（口令转链）
+JINGTUITUI_CONFIG = {
+    "appid": "",  # 你的京推推 APPID
+    "appkey": "",  # 你的京推推 APPKEY
+}
+
+# ========== 线报系统配置 ==========
+
+# 线报收集配置
+NEWS_COLLECTOR_CONFIG = {
+    "enabled": True,
+    "priority": 30,
+    "settings": {
+        # 收集器配置
+        "collectors": [
+            {
+                "name": "京东线报收集",
+                "type": "jd",
+                "groups": [],  # 监听这些群的京东线报，例如 [12345678, 87654321]
+            }
+        ],
+        # 去重配置（性能优先）
+        "dedup_window_seconds": 60,  # 1分钟去重窗口
+        "dedup_by": "item_id",       # 根据商品ID去重
+        "dedup_method": "memory",    # 纯内存模式（极速）
+        "auto_cleanup": True,        # 自动清理过期数据
+        "cleanup_interval": 60,      # 清理间隔（秒）
+        "async_db_write": True,      # 异步写入数据库（不阻塞）
+    }
+}
+
+# 线报转发配置
+NEWS_FORWARDER_CONFIG = {
+    "enabled": True,
+    "priority": 35,
+    "settings": {
+        # 转发账号配置（与收集账号独立）
+        # 支持两种格式：
+        # 1. "qq": 单个QQ号 - 只用这个QQ转发
+        # 2. "qq": [QQ1, QQ2, QQ3] - 多个QQ轮流转发，自动跳过离线的
+        "forwarders": [
+            {
+                "qq": [],        # 多个QQ轮流转发（替换为实际QQ号）
+                # 或者单个QQ：
+                # "qq": 777777,                # 单个QQ转发
+                "targets": [],   # 转发到这些群（替换为实际群号）
+            },
+        ],
+        # 转发策略
+        "forward_mode": "round_robin",  # 轮流模式：round_robin | random | all
+        "forward_interval": 0,          # 转发间隔（秒），0=立即转发
+        "batch_size": 1,                # 单条转发（实时性优先）
+        "auto_forward": True,           # 自动转发开关
+        "async_forward": True,          # 异步转发（不等待响应）
+    }
+}
+
+
+# ========== 模块配置 ==========
+
+# 指令模块配置
+COMMANDS_MODULE_CONFIG = {
+    "enabled": True,
+    "priority": 10,
+    "settings": {
+        "auto_recall_delay": 5,
+        "max_retry_attempts": 3,
+    }
+}
+
+
+# ========== 返利模块配置 ==========
+REBATE_MODULE_CONFIG = {
+    "enabled": True,
+    "priority": 20,
+    "settings": {
+        # ===== 1. 监听群配置 =====
+        # 只有这些群的消息才会触发返利转换
+        "watched_groups": [],  # 返利群号，例如 [12345678]
+        
+        # ===== 2. 管理员配置 =====
+        # 管理员QQ列表（这些QQ的私聊会显示佣金）
+        "admin_qq_list": [],
+        
+        # 管理员群列表（这些群的所有人都会看到佣金）
+        "admin_group_list": [],
+        
+        # ===== 3. 佣金显示规则 =====
+        "commission_display": {
+            "show_in_admin_group": True,      # 管理员群显示佣金（所有人可见）
+            "show_in_private_admin": True,    # 管理员私聊显示佣金
+            "show_in_private_user": False,    # 普通用户私聊不显示佣金
+            "show_in_other_group": False,     # 非管理员群不显示佣金
+        },
+    },
+    
+    # ===== 4. API配置（在settings外层）=====
+    "淘宝API": TAOBAO_CONFIG,
+    "京东API": JINGDONG_CONFIG,
+    "京推推API": JINGTUITUI_CONFIG,
+}
+
+# 天气模块配置（示例）
+WEATHER_MODULE_CONFIG = {
+    "enabled": False,  # 默认禁用
+    "priority": 50,
+    "settings": {
+        "api_key": "",  # 天气API密钥
+        "default_city": "北京",
+    }
+}
+
+# 二维码模块配置（示例）
+QRCODE_MODULE_CONFIG = {
+    "enabled": False,  # 默认禁用
+    "priority": 60,
+    "settings": {
+        "output_dir": "qrcodes",
+    }
+}
+
+# ========== 模块配置映射 ==========
+# 模块名 -> 配置字典
+MODULE_CONFIGS = {
+    "commands": COMMANDS_MODULE_CONFIG,
+    "rebate": REBATE_MODULE_CONFIG,
+    "weather": WEATHER_MODULE_CONFIG,
+    "qrcode": QRCODE_MODULE_CONFIG,
+    # 线报系统模块
+    "news_collector": NEWS_COLLECTOR_CONFIG,
+    "news_forwarder": NEWS_FORWARDER_CONFIG,
+}
+
+# ========== 指令配置 ==========
+
+COMMANDS = {
+    "指令": "显示所有支持的指令及其说明\n",
+    "撤回 n": "撤回指定群最近 n 条消息，例如 '撤回 5'\n",
+    "撤回全部": "撤回数据库中所有消息\n",
+    "引用消息 撤回": "撤回引用的消息\n",
+    "@某人 撤回": "撤回某人所有消息\n",
+    "撤回id xxx": "撤回指定id消息\n",
+    "清理全部已撤回": "清理所有已撤回消息\n",
+    "清理3天": "清理3天前的已撤回消息\n",
+    "历史消息": "获取最近20条未删除群历史消息\n",
+    "查数据库": "查询数据库中所有消息记录\n",
+    "数据库统计": "查看数据库使用情况\n",
+    "清理数据库": "清理7天前的已撤回消息\n",
+    "导出数据库": "导出数据库为excel格式\n",
+    "定时 n": "启动定时撤回，设置每隔 n 分钟自动撤回\n"
+}
+
+# ========== 辅助函数 ==========
+
+def get_module_config(module_name: str) -> dict:
+    """
+    获取指定模块的配置
+    
+    Args:
+        module_name: 模块名称（如 'commands', 'rebate'）
+        
+    Returns:
+        模块配置字典
+    """
+    return MODULE_CONFIGS.get(module_name, {
+        "enabled": False,
+        "priority": 100,
+        "settings": {}
+    })
+
+def is_module_enabled(module_name: str) -> bool:
+    """
+    检查模块是否启用
+    
+    Args:
+        module_name: 模块名称
+        
+    Returns:
+        是否启用
+    """
+    return MODULE_CONFIGS.get(module_name, {}).get("enabled", False)
+
+# ========== 配置验证 ==========
+
+def validate_config():
+    """验证配置是否正确"""
+    errors = []
+    
+    # 检查必填项
+    if REBATE_MODULE_CONFIG["enabled"] and not REBATE_MODULE_CONFIG["settings"]["watched_groups"]:
+        errors.append("返利模块已启用，但未配置监听群(watched_groups)")
+    
+    # 检查返利模块配置
+    if REBATE_MODULE_CONFIG["enabled"]:
+        if not TAOBAO_CONFIG["app_key"] and not JINGDONG_CONFIG["appkey"]:
+            errors.append("返利模块已启用，但淘宝和京东API都未配置")
+    
+    if errors:
+        print("⚠️ 配置警告:")
+        for error in errors:
+            print(f"  - {error}")
+    else:
+        print("✅ 配置验证通过")
+    
+    return len(errors) == 0
+
+# 启动时验证配置
+if __name__ == "__main__":
+    validate_config()
