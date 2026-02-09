@@ -67,11 +67,14 @@ DB_FILE = "messages.db"
 module_loader: Optional[ModuleLoader] = None  # 模块加载器实例
 group_timers: Dict[int, Dict] = {}  # {group_id: {'enabled': bool, 'interval': int, 'task': asyncio.Task}}
 pending_recall_messages: Set[int] = set()  # 待重试撤回的消息ID集合
-pending_requests: Dict[str, int] = {}  # {echo: message_id} 用于匹配 OneBot 响应，特别是为重试和自动撤回保留 (老的同步逻辑)
+pending_requests: Dict[str, int] = {}  # {echo: message_id} 用于匹配 OneBot 响应,特别是为重试和自动撤回保留 (老的同步逻辑)
 pending_futures: Dict[str, asyncio.Future] = {}  # {echo: Future} 用于 `force_recall_message` 非阻塞等待响应 (新的异步逻辑)
 retry_counts: Dict[int, int] = {}  # 记录每个消息ID的重试次数
 MAX_RETRY_ATTEMPTS = 3  # 最大重试3次
 has_printed_watched_groups = False
+
+# 机器人在线状态跟踪
+online_bots: Set[int] = set()  # 当前在线的机器人QQ号集合
 
 # SQLite数据库初始化
 def init_db():
@@ -106,6 +109,16 @@ def init_db():
     conn.close()
 
 init_db()
+
+def get_online_bots() -> Set[int]:
+    """
+    获取当前在线的机器人QQ号集合
+    供模块调用以判断机器人在线状态
+    
+    Returns:
+        在线机器人QQ号集合
+    """
+    return online_bots.copy()
 
 # 数据库清理功能
 
@@ -1327,12 +1340,14 @@ async def custom_ws_adapter(websocket: WebSocket):
 
             # Meta Event
             if event.get("post_type") == "meta_event":
-                # 处理 lifecycle 事件，打印连接的 QQ 号
+                # 处理 lifecycle 事件,打印连接的 QQ 号
                 if event.get("meta_event_type") == "lifecycle" and event.get("sub_type") == "connect":
                     self_id = event.get("self_id")
                     if self_id:
                         connected_qq = self_id
+                        online_bots.add(self_id)  # 记录在线状态
                         print(f"[系统] ✅ 成功连接到 QQ: {self_id}")
+                        print(f"[系统] 当前在线机器人: {sorted(online_bots)}")
                 continue 
 
             # Message Event - 派发到新的异步任务处理
@@ -1389,7 +1404,10 @@ async def custom_ws_adapter(websocket: WebSocket):
         if websocket.client_state != WebSocketState.DISCONNECTED:
             await websocket.close()
             debug_log("WebSocket连接已关闭")
-            print(f"[系统] ❌ QQ {connected_qq or '未知'} 连接已关闭")
+            if connected_qq:  # 移除离线状态
+                online_bots.discard(connected_qq)
+                print(f"[系统] ❌ QQ {connected_qq} 连接已关闭")
+                print(f"[系统] 当前在线机器人: {sorted(online_bots)}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:

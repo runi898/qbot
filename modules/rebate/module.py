@@ -7,7 +7,8 @@
 import re
 from typing import Optional, Set
 from core.base_module import BaseModule, ModuleContext, ModuleResponse
-from config import get_bot_qq_list
+from config import get_bot_qq_list, get_bot_priority
+import main  # 导入main模块以访问get_online_bots
 from .taobao import TaobaoConverter
 from .jingdong import JingdongConverter
 
@@ -64,10 +65,14 @@ class RebateModule(BaseModule):
         # 获取机器人QQ列表(用于过滤机器人消息)
         self.bot_qq_list = get_bot_qq_list()
         
-        # 调试：打印接收到的配置
+        # 获取机器人优先级配置
+        self.bot_priority = get_bot_priority()
+        
+        # 调试:打印接收到的配置
         print(f"[{self.name}] 接收到的配置keys: {list(config.keys())}")
         print(f"[{self.name}] settings keys: {list(config.get('settings', {}).keys())}")
         print(f"[{self.name}] 机器人QQ列表: {self.bot_qq_list}")
+        print(f"[{self.name}] 机器人优先级顺序: {self.bot_priority}")
         
         # 配置
         self.config = config
@@ -133,15 +138,60 @@ class RebateModule(BaseModule):
             return result
         
         # 2. 群聊情况
-        # 只有在管理员群才显示佣金（无论是否管理员）
+        # 只有在管理员群才显示佣金(无论是否管理员)
         result = group_id in self.admin_group_list
         print(f"[{self.name}] 群聊佣金判断: group_id={group_id}, admin_group_list={self.admin_group_list}, result={result}")
         return result
     
+    def should_respond_by_priority(self, context: ModuleContext) -> bool:
+        """
+        判断当前机器人是否应该响应(基于优先级和在线状态)
+        只有优先级最高的在线机器人才响应
+        
+        Args:
+            context: 消息上下文
+            
+        Returns:
+            是否应该响应
+        """
+        current_bot = context.self_id
+        debug = self.config.get("debug", False)
+        
+        # 如果当前机器人不在优先级列表中,默认响应
+        if current_bot not in self.bot_priority:
+            if debug:
+                print(f"[{self.name}] 当前机器人({current_bot})不在优先级列表中,默认响应")
+            return True
+        
+        # 获取在线机器人列表
+        online_bots = main.get_online_bots()
+        
+        if debug:
+            print(f"[{self.name}] 当前在线机器人: {sorted(online_bots)}")
+        
+        # 找出在线且在优先级列表中的机器人
+        online_priority_bots = [bot for bot in self.bot_priority if bot in online_bots]
+        
+        if not online_priority_bots:
+            # 没有配置的机器人在线,默认响应
+            if debug:
+                print(f"[{self.name}] 没有配置的机器人在线,默认响应")
+            return True
+        
+        # 检查当前机器人是否是优先级最高的在线机器人
+        highest_priority_bot = online_priority_bots[0]
+        should_respond = (current_bot == highest_priority_bot)
+        
+        if debug:
+            print(f"[{self.name}] 优先级最高的在线机器人: {highest_priority_bot}")
+            print(f"[{self.name}] 当前机器人({current_bot}) {'应该' if should_respond else '不应该'}响应")
+        
+        return should_respond
+    
     
     async def can_handle(self, message: str, context: ModuleContext) -> bool:
         """判断消息中是否包含淘宝或京东链接"""
-        # 从配置中读取 debug 标记，默认为 False
+        # 从配置中读取 debug 标记,默认为 False
         debug = self.config.get("debug", False)
         
         if debug:
@@ -154,20 +204,24 @@ class RebateModule(BaseModule):
                 print(f"[{self.name}] 跳过机器人消息: {context.user_id}")
             return False
         
-        # 处理私聊消息（group_id 为 None）
+        # 处理私聊消息(group_id 为 None) - 私聊不受优先级限制
         if context.group_id is None:
             if debug:
-                print(f"[{self.name}] 私聊消息，检查是否包含链接")
-            # 私聊消息也处理，检查是否包含淘宝或京东链接
+                print(f"[{self.name}] 私聊消息,检查是否包含链接")
+            # 私聊消息也处理,检查是否包含淘宝或京东链接
             has_link = bool(self.taobao_regex.search(message) or self.jingdong_regex.search(message))
             if has_link and debug:
-                print(f"[{self.name}] 私聊消息包含链接，将处理")
+                print(f"[{self.name}] 私聊消息包含链接,将处理")
             return has_link
         
         # 只处理监听群的消息
         if context.group_id not in self.watched_groups:
             if debug:
                 print(f"[{self.name}] 群 {context.group_id} 不在监听列表中")
+            return False
+        
+        # 优先级检查:只有优先级最高的在线机器人响应
+        if not self.should_respond_by_priority(context):
             return False
         
         # 检查是否包含淘宝或京东链接
