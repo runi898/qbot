@@ -311,46 +311,6 @@ class GroupAdminModule(BaseModule):
         except Exception as e:
             return f"❌ 清理失败: {e}"
 
-    async def export_db(self) -> str:
-        """导出数据库为 CSV (使用内置模块，无需 pandas)"""
-        try:
-            import csv
-            import sqlite3
-            import os
-            from datetime import datetime
-            
-            conn = sqlite3.connect('messages.db')
-            cursor = conn.cursor()
-            
-            # 获取所有数据
-            cursor.execute("SELECT * FROM messages ORDER BY created_at DESC LIMIT 5000")
-            rows = cursor.fetchall()
-            
-            # 获取列名
-            headers = [description[0] for description in cursor.description]
-            
-            conn.close()
-            
-            if not rows:
-                return "⚠️ 数据库为空，无需导出。"
-            
-            # 确保导出目录存在
-            export_dir = "exports"
-            if not os.path.exists(export_dir):
-                os.makedirs(export_dir)
-                
-            filename = f"{export_dir}/messages_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-            
-            # 写入 CSV (使用 utf-8-sig 编码以兼容 Excel 中文显示)
-            with open(filename, 'w', newline='', encoding='utf-8-sig') as f:
-                writer = csv.writer(f)
-                writer.writerow(headers)
-                writer.writerows(rows)
-            
-            return f"✅ 数据库已导出:\n📄 文件路径: {os.path.abspath(filename)}\n📊 记录数: {len(rows)}"
-        except Exception as e:
-            return f"❌ 导出失败: {e}"
-
     async def start_scheduled_recall(self, context: ModuleContext, interval_minutes: int) -> str:
         """启动定时撤回任务"""
         import asyncio
@@ -419,9 +379,6 @@ class GroupAdminModule(BaseModule):
                 except:
                     return ModuleResponse(content="❌ 清理指令格式错误，请使用 '清理N天' (N为数字)")
             
-            elif msg == "导出数据库":
-                return ModuleResponse(content=await self.export_db())
-
             # --- 定时任务指令 ---
             elif msg.startswith("定时"):
                 # "定时 5" -> 每5分钟撤回
