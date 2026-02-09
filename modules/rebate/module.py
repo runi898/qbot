@@ -7,7 +7,7 @@
 import re
 from typing import Optional, Set
 from core.base_module import BaseModule, ModuleContext, ModuleResponse
-from config import get_bot_qq_list, get_bot_priority, DEBUG_MODE
+from config import get_bot_qq_list, BOT_PRIORITY, DEBUG_MODE
 import main  # 导入main模块以访问get_online_bots
 from .taobao import TaobaoConverter
 from .jingdong import JingdongConverter
@@ -66,7 +66,7 @@ class RebateModule(BaseModule):
         self.bot_qq_list = get_bot_qq_list()
         
         # 获取机器人优先级配置
-        self.bot_priority = get_bot_priority()
+        self.bot_priority = BOT_PRIORITY
         
         # 调试:打印接收到的配置
         print(f"[{self.name}] 接收到的配置keys: {list(config.keys())}")
@@ -130,6 +130,8 @@ class RebateModule(BaseModule):
         Returns:
             是否显示佣金
         """
+        debug = self.config.get("debug", False) or DEBUG_MODE
+
         # 1. 私聊情况
         if group_id is None:
             # 管理员私聊显示，普通用户私聊不显示
@@ -140,7 +142,8 @@ class RebateModule(BaseModule):
         # 2. 群聊情况
         # 只有在管理员群才显示佣金(无论是否管理员)
         result = group_id in self.admin_group_list
-        print(f"[{self.name}] 群聊佣金判断: group_id={group_id}, admin_group_list={self.admin_group_list}, result={result}")
+        if debug:
+            print(f"[{self.name}] 群聊佣金判断: group_id={group_id}, admin_group_list={self.admin_group_list}, result={result}")
         return result
     
     def should_respond_by_priority(self, context: ModuleContext) -> bool:
@@ -158,9 +161,10 @@ class RebateModule(BaseModule):
         debug = self.config.get("debug", False) or DEBUG_MODE  # 使用全局DEBUG_MODE
         
         # 总是输出基本信息用于调试
-        print(f"[{self.name}] === 优先级检查开始 ===")
-        print(f"[{self.name}] 当前机器人: {current_bot}")
-        print(f"[{self.name}] 优先级列表: {self.bot_priority}")
+        if debug:
+            print(f"[{self.name}] === 优先级检查开始 ===")
+            print(f"[{self.name}] 当前机器人: {current_bot}")
+            print(f"[{self.name}] 优先级列表: {self.bot_priority}")
         
         # 如果当前机器人不在优先级列表中,默认响应
         if current_bot not in self.bot_priority:
@@ -168,25 +172,41 @@ class RebateModule(BaseModule):
             return True
         
         # 获取在线机器人列表
-        online_bots = main.get_online_bots()
-        print(f"[{self.name}] 当前在线机器人: {sorted(online_bots)}")
+        from core import bot_manager
+        online_bots = bot_manager.get_online_bots()
+        if debug:
+            print(f"[{self.name}] 当前在线机器人: {sorted(online_bots)}")
         
-        # 找出在线且在优先级列表中的机器人
-        online_priority_bots = [bot for bot in self.bot_priority if bot in online_bots]
-        print(f"[{self.name}] 在线的优先级机器人: {online_priority_bots}")
+        # 找出在线且在当前群中的优先级机器人
+        target_bot = None
+        for bot_id in self.bot_priority:
+            # 1. 检查是否在线
+            if bot_id not in online_bots:
+                continue
+                
+            # 2. 检查是否在当前群中
+            # 如果是私聊（context.group_id is None），只需要在线即可（或者是第一个在线的优先级机器人）
+            if context.group_id:
+                if bot_manager.is_bot_in_group(bot_id, context.group_id):
+                    target_bot = bot_id
+                    break
+            else:
+                # 私聊情况，取第一个在线的
+                target_bot = bot_id
+                break
         
-        if not online_priority_bots:
-            # 没有配置的机器人在线,默认响应
-            print(f"[{self.name}] 没有配置的机器人在线,默认响应")
-            return True
+        if target_bot is None:
+            # 没有合适的机器人在线或在群中
+            if debug:
+                print(f"[{self.name}] 没有找到合适的机器人处理（都在线但都不在群？）")
+            return False
+            
+        should_respond = (current_bot == target_bot)
         
-        # 检查当前机器人是否是优先级最高的在线机器人
-        highest_priority_bot = online_priority_bots[0]
-        should_respond = (current_bot == highest_priority_bot)
-        
-        print(f"[{self.name}] 优先级最高的在线机器人: {highest_priority_bot}")
-        print(f"[{self.name}] 当前机器人({current_bot}) {'应该' if should_respond else '不应该'}响应")
-        print(f"[{self.name}] === 优先级检查结束 ===")
+        if debug:
+            print(f"[{self.name}] 本群({context.group_id}) 应响应机器人: {target_bot}")
+            print(f"[{self.name}] 当前机器人({current_bot}) {'应该' if should_respond else '不应该'}响应")
+            print(f"[{self.name}] === 优先级检查结束 ===")
         
         return should_respond
     
@@ -234,6 +254,7 @@ class RebateModule(BaseModule):
     
     async def handle(self, message: str, context: ModuleContext) -> Optional[ModuleResponse]:
         """处理链接转换"""
+        debug = self.config.get("debug", False) or DEBUG_MODE
         results = []
         processed_titles: Set[str] = set()
         
@@ -253,13 +274,15 @@ class RebateModule(BaseModule):
         # 处理京东链接
         if self.jingdong_converter:
             jingdong_matches = self.jingdong_regex.findall(message)
+        if debug:
             print(f"[{self.name}] 京东正则匹配结果: {jingdong_matches}")
-            for match in jingdong_matches:
+        for match in jingdong_matches:
+            if debug:
                 print(f"[{self.name}] 处理京东链接: {match}")
-                if match:
-                    result = await self.jingdong_converter.convert(match, processed_titles, show_commission)
-                    if result:
-                        results.append(result)
+            if match:
+                result = await self.jingdong_converter.convert(match, processed_titles, show_commission)
+                if result:
+                    results.append(result)
         
         if results:
             content = "\n\n".join(results)

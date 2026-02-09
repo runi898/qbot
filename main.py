@@ -32,7 +32,8 @@ from config import (
     CLEANUP_HOUR,
     DATABASE_FILE,
     ONEBOT_HOST,
-    ONEBOT_PORT
+    ONEBOT_PORT,
+    get_bot_qq_list  # NEW: Import to get all bot QQs
 )
 
 # 从配置字典中提取具体的 API 参数（向后兼容）
@@ -73,8 +74,20 @@ retry_counts: Dict[int, int] = {}  # 记录每个消息ID的重试次数
 MAX_RETRY_ATTEMPTS = 3  # 最大重试3次
 has_printed_watched_groups = False
 
+# 导入机器人管理器（解决循环引用）
+from core import bot_manager
+
 # 机器人在线状态跟踪
-online_bots: Set[int] = set()  # 当前在线的机器人QQ号集合
+# online_bots: Set[int] = set()  # 当前在线的机器人QQ号集合 # This is now managed by bot_manager
+
+def get_online_bots() -> Set[int]:
+    """
+    获取当前在线的机器人QQ号集合
+    
+    Returns:
+        当前在线的机器人QQ号集合
+    """
+    return bot_manager.get_online_bots()
 
 # SQLite数据库初始化
 def init_db():
@@ -1255,31 +1268,52 @@ async def _handle_message_event(event: Dict, websocket: WebSocket):
                     # 根据 group_id 判断是群聊还是私聊
                     if group_id is None:
                         # 私聊消息
+                        echo_prefix = "module_response_recall_" if (getattr(module_response, 'auto_recall', False)) else "module_response_"
                         reply_action = {
                             "action": "send_private_msg",
                             "params": {
                                 "user_id": user_id,
                                 "message": module_response.content
-                            }
+                            },
+                            "echo": f"{echo_prefix}{message_id}"  # 添加echo以获取响应消息ID
                         }
-                        print(f"[ModuleLoader] 准备发送私聊消息到用户{user_id}")
+                        verbose_log("module_handling", f"准备发送私聊消息到用户{user_id}")
                     else:
                         # 群聊消息
+                        echo_prefix = "module_response_recall_" if (getattr(module_response, 'auto_recall', False)) else "module_response_"
+                        if echo_prefix == "module_response_recall_":
+                             verbose_log("module_handling", f"消息需自动撤回，使用echo前缀: {echo_prefix}")
+                        
                         reply_action = {
                             "action": "send_group_msg",
                             "params": {
                                 "group_id": group_id,
                                 "message": module_response.content
-                            }
+                            },
+                            "echo": f"{echo_prefix}{message_id}"  # 添加echo以获取响应消息ID
                         }
-                        print(f"[ModuleLoader] 准备发送群消息到群{group_id}")
+                        verbose_log("module_handling", f"准备发送群消息到群{group_id} (Echo: {echo_prefix}{message_id})")
                     
                     if websocket.client_state == WebSocketState.CONNECTED:
                         await websocket.send_text(json.dumps(reply_action))
                         if group_id is None:
-                            print(f"[ModuleLoader] 已发送模块响应到用户{user_id}")
+                            verbose_log("module_handling", f"已发送模块响应到用户{user_id}")
                         else:
-                            print(f"[ModuleLoader] 已发送模块响应到群{group_id}")
+                            verbose_log("module_handling", f"已发送模块响应到群{group_id}")
+                        
+                        # 检查是否需要自动撤回
+                        if hasattr(module_response, 'auto_recall') and module_response.auto_recall:
+                            recall_delay = getattr(module_response, 'recall_delay', 3)  # 默认3秒
+                            print(f"[ModuleLoader] 将在 {recall_delay} 秒后自动撤回响应消息")
+                            
+                            # 创建异步任务来延迟撤回
+                            async def auto_recall_task():
+                                await asyncio.sleep(recall_delay)
+                                # 这里需要等待获取响应消息ID，然后撤回
+                                # 由于OneBot响应是异步的，我们需要在echo响应中处理
+                                pass
+                            
+                            asyncio.create_task(auto_recall_task())
                     else:
                         print(f"[ModuleLoader] WebSocket未连接，无法发送响应")
                 except Exception as send_error:
@@ -1345,10 +1379,34 @@ async def custom_ws_adapter(websocket: WebSocket):
                     self_id = event.get("self_id")
                     if self_id:
                         connected_qq = self_id
-                        online_bots.add(self_id)  # 记录在线状态
+                        # online_bots.add(self_id)  # 记录在线状态
+                        bot_manager.add_bot(self_id, websocket)
                         print(f"[系统] ✅ 成功连接到 QQ: {self_id}")
-                        print(f"[系统] 当前在线机器人: {sorted(online_bots)}")
-                continue 
+                        print(f"[系统] 当前在线机器人: {sorted(bot_manager.get_online_bots())}")
+                        
+                        # 获取该机器人的群列表（用于优先级判断）
+                        try:
+                            payload = {
+                                "action": "get_group_list",
+                                "echo": f"system_get_group_list_{self_id}"
+                            }
+                            await websocket.send_text(json.dumps(payload))
+                            print(f"[系统] 已请求获取 QQ {self_id} 的群列表")
+                        except Exception as e:
+                            print(f"[系统] ❌ 请求群列表失败: {e}")
+                
+                # 处理心跳事件，确保在线状态持续更新
+                elif event.get("meta_event_type") == "heartbeat":
+                    self_id = event.get("self_id")
+                    current_online_bots = bot_manager.get_online_bots()
+                    if self_id and self_id not in current_online_bots:
+                        # online_bots.add(self_id)  # 记录在线状态
+                        bot_manager.add_bot(self_id, websocket)
+                        print(f"[系统] ✅ 通过心跳检测到 QQ: {self_id} 在线")
+                        print(f"[系统] 当前在线机器人: {sorted(bot_manager.get_online_bots())}")
+                
+                continue
+ 
 
             # Message Event - 派发到新的异步任务处理
             if event.get("post_type") == "message" and event.get("message_type") in ["private", "group"]:
@@ -1359,11 +1417,29 @@ async def custom_ws_adapter(websocket: WebSocket):
             if "echo" in event:
                 echo = event["echo"]
                 
+                # 忽略 echo 为 None 的情况
+                if echo is None:
+                    continue
+
                 if echo in pending_futures:
                     future = pending_futures.pop(echo) 
                     if not future.done(): 
                         future.set_result(event)
+                    if not future.done(): 
+                        future.set_result(event)
                     debug_log(f"设置Future结果 for echo: {echo}")
+                
+                # 处理系统获取群列表的响应
+                elif echo.startswith("system_get_group_list_"):
+                    if event.get("status") == "ok" and "data" in event:
+                        try:
+                            bot_id = int(echo.split("_")[-1])
+                            groups = event.get("data", [])
+                            group_ids = [g.get("group_id") for g in groups]
+                            bot_manager.update_bot_groups(bot_id, group_ids)
+                            print(f"[系统] ✅ 更新 QQ {bot_id} 的群列表缓存: 共 {len(group_ids)} 个群")
+                        except Exception as e:
+                            print(f"[系统] ❌ 处理群列表响应失败: {e}")
                 
                 elif echo in pending_requests:
                     message_id = pending_requests.pop(echo) 
@@ -1386,6 +1462,142 @@ async def custom_ws_adapter(websocket: WebSocket):
                         debug_log(f"处理延迟响应: 撤回消息 {message_id} 失败: {event.get('message', '未知错误')}，完整响应: {json.dumps(event)}")
                         pending_recall_messages.add(message_id) 
                     conn.close()
+                
+                # 处理群历史消息响应（用于批量撤回）
+                elif echo and (echo.startswith("get_history_") or echo.startswith("get_all_history_")):
+                    if event.get("status") == "ok" and "data" in event:
+                        messages = event["data"].get("messages", [])
+                        group_id = echo.split("_")[-1]  # 从echo中提取群号
+                        
+                        if messages:
+                            if DEBUG_MODE:
+                                print(f"[群管理模块] 收到 {len(messages)} 条历史消息，开始批量撤回...")
+                            
+                            # 获取所有机器人QQ列表，避免误撤回机器人发的消息（特别是返利消息）
+                            bot_qq_list = get_bot_qq_list()
+                            
+                            # 遍历消息列表并撤回
+                            recalled_count = 0
+                            for msg in messages:
+                                msg_id = msg.get("message_id")
+                                user_id = msg.get("user_id")
+                                
+                                # 跳过已删除的消息
+                                if msg.get("raw_message") in ["[已删除]", "&#91;已删除&#93;"]:
+                                    continue
+                                
+                                # 跳过机器人的消息（防止误删返利线报）
+                                # if user_id in bot_qq_list:
+                                #     # print(f"[群管理模块] 跳过机器人的消息: user_id={user_id}")
+                                #     continue
+                                
+                                # 发送撤回请求
+                                try:
+                                    recall_payload = {
+                                        "action": "delete_msg",
+                                        "params": {"message_id": msg_id},
+                                        "echo": f"batch_recall_{msg_id}"
+                                    }
+                                    await websocket.send_text(json.dumps(recall_payload))
+                                    recalled_count += 1
+                                    debug_log(f"已发送撤回请求: message_id={msg_id}")
+                                    
+                                    # 添加小延迟，避免请求过快
+                                    await asyncio.sleep(0.1)
+                                    
+                                except Exception as e:
+                                    print(f"[群管理模块] ❌ 撤回消息 {msg_id} 失败: {e}")
+                            
+                            print(f"[群管理模块] ✅ 已发送 {recalled_count} 条撤回请求")
+                        else:
+                            print(f"[群管理模块] ⚠️ 未找到可撤回的消息")
+                    else:
+                        print(f"[群管理模块] ❌ 获取历史消息失败: {event.get('message', '未知错误')}")
+                
+                # 处理模块响应的echo（用于自动撤回）
+                elif echo and echo.startswith("module_response_recall_"):
+                    if event.get("status") == "ok" and "data" in event:
+                        response_msg_id = event["data"].get("message_id")
+                        if response_msg_id:
+                            verbose_log("module_handling", f"模块响应消息ID: {response_msg_id}，准备延迟撤回")
+                            
+                            # 创建延迟撤回任务
+                            async def delayed_recall(msg_id, delay=3):
+                                await asyncio.sleep(delay)
+                                try:
+                                    recall_payload = {
+                                        "action": "delete_msg",
+                                        "params": {"message_id": msg_id},
+                                        "echo": f"auto_recall_{msg_id}"
+                                    }
+                                    await websocket.send_text(json.dumps(recall_payload))
+                                    verbose_log("module_handling", f"已自动撤回响应消息: {msg_id}")
+                                except Exception as e:
+                                    debug_log(f"[ModuleLoader] 自动撤回失败: {e}")
+                            
+                            asyncio.create_task(delayed_recall(response_msg_id))
+
+                # 处理撤回响应（检查权限错误）
+                elif echo and ("recall_" in echo or "user_recall_" in echo):
+                    if event.get("status") == "failed":
+                        retcode = event.get("retcode")
+                        if retcode == 200:
+                            print(f"[群管理模块] ❌ 撤回失败: 权限不足 (200) - 机器人无法撤回管理员/群主消息，或消息已失效")
+                        elif retcode == 100:
+                            print(f"[群管理模块] ❌ 撤回失败: 参数错误 (100)")
+                
+                # 处理特定用户历史消息响应（用于@撤回）
+                elif echo and echo.startswith("get_user_history_"):
+                    if event.get("status") == "ok" and "data" in event:
+                        messages = event["data"].get("messages", [])
+                        # echo格式: get_user_history_{group_id}_{target_qq}_{limit_count}
+                        parts = echo.split("_")
+                        # parts: ['get', 'user', 'history', group_id, target_qq, limit_count]
+                        if len(parts) >= 6:
+                            target_qq = int(parts[4])
+                            limit_count = int(parts[5])
+                            
+                            if messages:
+                                if DEBUG_MODE:
+                                    print(f"[群管理模块] 收到 {len(messages)} 条历史消息，正在筛选用户 {target_qq} 的消息...")
+                                
+                                recalled_count = 0
+                                for msg in messages:
+                                    if recalled_count >= limit_count:
+                                        break
+                                        
+                                    if str(msg.get("user_id")) == str(target_qq):
+                                        msg_id = msg.get("message_id")
+                                        
+                                        # 跳过已删除的消息
+                                        if msg.get("raw_message") in ["[已删除]", "&#91;已删除&#93;"]:
+                                            continue
+                                            
+                                        # 发送撤回请求
+                                        try:
+                                            recall_payload = {
+                                                "action": "delete_msg",
+                                                "params": {"message_id": msg_id},
+                                                "echo": f"user_recall_{msg_id}"
+                                            }
+                                            await websocket.send_text(json.dumps(recall_payload))
+                                            recalled_count += 1
+                                            debug_log(f"已发送撤回请求: message_id={msg_id}")
+                                            await asyncio.sleep(0.1)
+                                        except Exception as e:
+                                            print(f"[群管理模块] ❌ 撤回消息 {msg_id} 失败: {e}")
+                                            
+                                if DEBUG_MODE:
+                                    print(f"[群管理模块] ✅ 已发送 {recalled_count} 条针对用户 {target_qq} 的撤回请求")
+                            else:
+                                print(f"[群管理模块] ⚠️ 未找到消息")
+                        else:
+                            print(f"[群管理模块] ❌ Echo格式错误: {echo}")
+                    else:
+                        print(f"[群管理模块] ❌ 获取历史消息失败: {event.get('message', '未知错误')}")
+
+
+                
                 else:
                     debug_log(f"收到非预期或已处理的echo: {echo}, 事件: {event}") 
             else:
@@ -1405,9 +1617,10 @@ async def custom_ws_adapter(websocket: WebSocket):
             await websocket.close()
             debug_log("WebSocket连接已关闭")
             if connected_qq:  # 移除离线状态
-                online_bots.discard(connected_qq)
+                # online_bots.discard(connected_qq)
+                bot_manager.remove_bot(connected_qq)
                 print(f"[系统] ❌ QQ {connected_qq} 连接已关闭")
-                print(f"[系统] 当前在线机器人: {sorted(online_bots)}")
+                print(f"[系统] 当前在线机器人: {sorted(bot_manager.get_online_bots())}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
@@ -1437,6 +1650,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         NEWS_COLLECTOR_CONFIG,
         NEWS_FORWARDER_CONFIG,
         REBATE_MODULE_CONFIG,
+        GROUP_ADMIN_CONFIG,
     )
     
     # 加载线报收集模块
@@ -1466,6 +1680,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             print("[系统] 返利模块加载成功")
         except Exception as e:
             print(f"[系统] 返利模块加载失败: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # 加载群管理模块
+    if GROUP_ADMIN_CONFIG.get('enabled', True):
+        try:
+            await module_loader.load_module_from_path('modules/group_admin', GROUP_ADMIN_CONFIG)
+            print("[系统] 群管理模块加载成功")
+        except Exception as e:
+            print(f"[系统] 群管理模块加载失败: {e}")
             import traceback
             traceback.print_exc()
     

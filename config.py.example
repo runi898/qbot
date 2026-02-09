@@ -1,23 +1,25 @@
-
 """
 QBot 统一配置文件 (示例)
 
-请将此文件重命名为 config.py 并填写实际配置信息。
+所有配置都在这里管理，包括：
+- 全局配置
+- 模块配置
+- API 密钥
 """
 
 # ========== 全局配置 ==========
 
 # 调试模式
-DEBUG_MODE = True  # True 显示日志，False 不显示
+DEBUG_MODE = False  # True 显示日志，False 不显示
 
 # 详细日志配置（控制业务日志）
 VERBOSE_LOGGING = {
-    "enabled": True,  # 总开关：True=打印详细日志，False=只打印基础日志
-    "message_received": True,  # 接收到的消息
-    "message_processing": True,  # 消息处理过程
-    "module_handling": True,  # 模块处理日志
-    "forward_logs": True,  # 转发日志
-    "api_calls": True,  # API调用日志
+    "enabled": False,  # 总开关：True=打印详细日志， False =只打印基础日志
+    "message_received": False,  # 接收到的消息
+    "message_processing": False,  # 消息处理过程
+    "module_handling": False,  # 模块处理日志
+    "forward_logs": False,  # 转发日志
+    "api_calls": False,  # API调用日志
 }
 
 
@@ -60,11 +62,19 @@ JINGTUITUI_CONFIG = {
     "appkey": "",  # 你的京推推 APPKEY
 }
 
+# ========== 机器人联动配置 ==========
+
+# 机器人优先级配置（全局共享）
+# 列表顺序即为优先级,排在前面的优先级更高
+# 适用于：返利响应、群管理指令响应
+# 只有优先级最高的在线机器人会执行操作
+BOT_PRIORITY = []  # 按优先级排序，例如 [123456789, 987654321]
+
 # ========== 线报系统配置 ==========
 
 # 线报收集配置
 NEWS_COLLECTOR_CONFIG = {
-    "enabled": True,
+    "enabled": False,
     "priority": 30,
     "settings": {
         # 收集器配置
@@ -72,11 +82,11 @@ NEWS_COLLECTOR_CONFIG = {
             {
                 "name": "京东线报收集",
                 "type": "jd",
-                "groups": [],  # 监听这些群的京东线报，例如 [12345678, 87654321]
+                "groups": [],  # 监听这些群的京东线报
             }
         ],
         # 去重配置（性能优先）
-        "dedup_window_seconds": 60,  # 1分钟去重窗口
+        "dedup_window_seconds": 40,  # 40秒去重窗口
         "dedup_by": "item_id",       # 根据商品ID去重
         "dedup_method": "memory",    # 纯内存模式（极速）
         "auto_cleanup": True,        # 自动清理过期数据
@@ -87,7 +97,7 @@ NEWS_COLLECTOR_CONFIG = {
 
 # 线报转发配置
 NEWS_FORWARDER_CONFIG = {
-    "enabled": True,
+    "enabled": False,
     "priority": 35,
     "settings": {
         # 转发账号配置（与收集账号独立）
@@ -96,10 +106,10 @@ NEWS_FORWARDER_CONFIG = {
         # 2. "qq": [QQ1, QQ2, QQ3] - 多个QQ轮流转发，自动跳过离线的
         "forwarders": [
             {
-                "qq": [],        # 多个QQ轮流转发（替换为实际QQ号）
+                "qq": [],        # 多个QQ轮流转发（替换为实际QQ号）多个qq用, 隔开
                 # 或者单个QQ：
                 # "qq": 777777,                # 单个QQ转发
-                "targets": [],   # 转发到这些群（替换为实际群号）
+                "targets": [],   # 转发到这些群（替换为实际群号）多个群用, 隔开
             },
         ],
         # 转发策略
@@ -125,14 +135,14 @@ COMMANDS_MODULE_CONFIG = {
 }
 
 
-# ========== 返利模块配置 ==========
 REBATE_MODULE_CONFIG = {
     "enabled": True,
     "priority": 20,
     "settings": {
+
         # ===== 1. 监听群配置 =====
         # 只有这些群的消息才会触发返利转换
-        "watched_groups": [],  # 返利群号，例如 [12345678]
+        "watched_groups": [],  # 返利群号
         
         # ===== 2. 管理员配置 =====
         # 管理员QQ列表（这些QQ的私聊会显示佣金）
@@ -175,6 +185,20 @@ QRCODE_MODULE_CONFIG = {
     }
 }
 
+# 群管理模块配置
+GROUP_ADMIN_CONFIG = {
+    "enabled": True,
+    "priority": 15,  # 高优先级，在返利模块之前
+    "settings": {
+        # 监听群列表
+        "watched_groups": [],  # 需要配置实际的群号
+        
+        # 管理员QQ列表（只有这些QQ可以使用群管理功能）
+        "admin_qq_list": [],  # 需要配置实际的管理员QQ
+    }
+}
+
+
 # ========== 模块配置映射 ==========
 # 模块名 -> 配置字典
 MODULE_CONFIGS = {
@@ -185,6 +209,8 @@ MODULE_CONFIGS = {
     # 线报系统模块
     "news_collector": NEWS_COLLECTOR_CONFIG,
     "news_forwarder": NEWS_FORWARDER_CONFIG,
+    # 群管理模块
+    "group_admin": GROUP_ADMIN_CONFIG,
 }
 
 # ========== 指令配置 ==========
@@ -207,6 +233,28 @@ COMMANDS = {
 }
 
 # ========== 辅助函数 ==========
+
+def get_bot_qq_list() -> list:
+    """
+    获取所有机器人QQ号列表(用于防止机器人间互相回复造成循环)
+    从NEWS_FORWARDER_CONFIG的forwarders配置中提取
+    
+    Returns:
+        机器人QQ号列表
+    """
+    bot_qq_set = set()
+    forwarders = NEWS_FORWARDER_CONFIG.get("settings", {}).get("forwarders", [])
+    
+    for forwarder in forwarders:
+        qq = forwarder.get("qq")
+        if isinstance(qq, list):
+            bot_qq_set.update(qq)
+        elif isinstance(qq, int):
+            bot_qq_set.add(qq)
+    
+    return list(bot_qq_set)
+
+
 
 def get_module_config(module_name: str) -> dict:
     """

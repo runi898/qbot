@@ -6,6 +6,7 @@ import aiohttp
 import json
 from typing import Optional, Set
 from urllib.parse import quote
+from config import DEBUG_MODE
 
 
 class JingdongConverter:
@@ -37,6 +38,12 @@ class JingdongConverter:
             转换结果字符串
         """
         try:
+            # 特殊处理：优惠券链接不需要转链，直接返回原链接
+            if "coupon.m.jd" in material_url:
+                 if DEBUG_MODE:
+                     print(f"[京东转换器] 检测到优惠券链接，跳过转链: {material_url}")
+                 return f"优惠券: {material_url}"
+
             async with aiohttp.ClientSession() as session:
                 # 第一步：获取商品信息和短链接
                 params = {
@@ -48,7 +55,8 @@ class JingdongConverter:
                     "signurl": 5  # 添加signurl=5以获取完整商品信息
                 }
                 
-                print(f"[京东转换器] 调用折京客API: {self.base_url} with materialId={material_url}")
+                if DEBUG_MODE:
+                    print(f"[京东转换器] 调用折京客API: {self.base_url} with materialId={material_url}")
                 
                 # 第一次API调用：获取商品详情和短链接
                 async with session.get(self.base_url, params=params, timeout=10) as response:
@@ -73,7 +81,8 @@ class JingdongConverter:
                             if self.position_id:
                                 command_api_url += f"&positionid={self.position_id}"
                             
-                            print(f"[京东转换器] 调用京推推口令API: {command_api_url}")
+                            if DEBUG_MODE:
+                                print(f"[京东转换器] 调用京推推口令API: {command_api_url}")
                             
                             try:
                                 async with session.post(command_api_url, timeout=5) as cmd_response:
@@ -83,13 +92,17 @@ class JingdongConverter:
                                         jd_command_text_raw = cmd_result["return"].get("jd_short_kl", "")
                                         if jd_command_text_raw:
                                             jd_command_text = f"【口令】{jd_command_text_raw}"
-                                        print(f"[京东转换器] 京推推口令转换成功: {jd_command_text_raw}")
+                                        if DEBUG_MODE:
+                                            print(f"[京东转换器] 京推推口令转换成功: {jd_command_text_raw}")
                                     else:
-                                        print(f"[京东转换器] 京推推口令转换失败: {cmd_result.get('msg', '未知错误')}")
+                                        if DEBUG_MODE:
+                                            print(f"[京东转换器] 京推推口令转换失败: {cmd_result.get('msg', '未知错误')}")
                             except Exception as cmd_e:
-                                print(f"[京东转换器] 京推推口令API请求异常: {str(cmd_e)}")
+                                if DEBUG_MODE:
+                                    print(f"[京东转换器] 京推推口令API请求异常: {str(cmd_e)}")
                         else:
-                            print("[京东转换器] 未获取到有效的short_url或未配置京推推，跳过口令生成。")
+                            if DEBUG_MODE:
+                                print("[京东转换器] 未获取到有效的short_url或未配置京推推，跳过口令生成。")
 
                         # 组合两个API的结果
                         return_string = f"【商品】: {jianjie}\n\n"
@@ -109,7 +122,8 @@ class JingdongConverter:
                         if image_cq:  # 如果图片CQ码存在，则添加
                             return_string += f"{image_cq}"
                         
-                        print(f"[京东转换器] 转换成功")
+                        if DEBUG_MODE:
+                            print(f"[京东转换器] 转换成功")
                         return return_string
                     
                     # 错误处理：第一次JD API调用
@@ -129,7 +143,8 @@ class JingdongConverter:
                                         if self.position_id:
                                             command_api_url += f"&positionid={self.position_id}"
                                         
-                                        print(f"[京东转换器] 调用京推推口令API(错误处理分支): {command_api_url}")
+                                        if DEBUG_MODE:
+                                            print(f"[京东转换器] 调用京推推口令API(错误处理分支): {command_api_url}")
                                         
                                         try:
                                             async with session.post(command_api_url, timeout=5) as cmd_response:
@@ -139,20 +154,31 @@ class JingdongConverter:
                                                     jd_command_text_raw = cmd_result["return"].get("jd_short_kl", "")
                                                     if jd_command_text_raw:
                                                         jd_command_text = f"\n【口令】{jd_command_text_raw}"
-                                                    print(f"[京东转换器] 京推推口令转换成功(错误处理分支): {jd_command_text_raw}")
+                                                    if DEBUG_MODE:
+                                                        print(f"[京东转换器] 京推推口令转换成功(错误处理分支): {jd_command_text_raw}")
                                                 else:
-                                                    print(f"[京东转换器] 京推推口令转换失败(错误处理分支): {cmd_result.get('msg', '未知错误')}")
+                                                    if DEBUG_MODE:
+                                                        print(f"[京东转换器] 京推推口令转换失败(错误处理分支): {cmd_result.get('msg', '未知错误')}")
                                         except Exception as cmd_e:
-                                            print(f"[京东转换器] 京推推口令API请求异常(错误处理分支): {str(cmd_e)}")
+                                            if DEBUG_MODE:
+                                                print(f"[京东转换器] 京推推口令API请求异常(错误处理分支): {str(cmd_e)}")
                                     
                                     return f"优惠: {short_url}{jd_command_text}"
+                                
+                                # 错误处理增强：如果是因为优惠券非联盟渠道，则返回原链接
+                                if "优惠券" in error_message or "非联盟" in error_message:
+                                     if DEBUG_MODE:
+                                         print(f"[京东转换器] API返回非联盟优惠券错误，降级为原链接: {error_message}")
+                                     return f"优惠券: {material_url}"
+
                                 return f"JD转换失败: {error_message}"
                             except json.JSONDecodeError:
                                 return "JD转换失败: 返回数据解析错误"
                     return "JD转换失败: 未知错误"
                     
         except Exception as e:
-            print(f"[京东转换器] 异常: {str(e)}")
+            if DEBUG_MODE:
+                print(f"[京东转换器] 异常: {str(e)}")
             return f"京东转换失败: {str(e)}"
     
     async def _get_command(self, session: aiohttp.ClientSession, short_url: str) -> str:
@@ -162,21 +188,26 @@ class JingdongConverter:
             if self.position_id:
                 url += f"&positionid={self.position_id}"
             
-            print(f"[京东转换器] 调用京推推口令API: {url}")
+            if DEBUG_MODE:
+                print(f"[京东转换器] 调用京推推口令API: {url}")
             
             async with session.post(url, timeout=5) as response:
                 response.raise_for_status()
                 result = await response.json(content_type=None)
                 
-                print(f"[京东转换器] 京推推返回: {result}")
+                if DEBUG_MODE:
+                    print(f"[京东转换器] 京推推返回: {result}")
                 
                 if "return" in result and result.get("msg", "").startswith("ok"):
                     command = result["return"].get("jd_short_kl", "")
-                    print(f"[京东转换器] 口令生成成功: {command}")
+                    if DEBUG_MODE:
+                        print(f"[京东转换器] 口令生成成功: {command}")
                     return command
                 else:
-                    print(f"[京东转换器] 口令生成失败: {result.get('msg', '未知错误')}")
+                    if DEBUG_MODE:
+                        print(f"[京东转换器] 口令生成失败: {result.get('msg', '未知错误')}")
                     return ""
         except Exception as e:
-            print(f"[京东转换器] 口令生成异常: {str(e)}")
+            if DEBUG_MODE:
+                print(f"[京东转换器] 口令生成异常: {str(e)}")
             return ""
