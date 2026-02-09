@@ -7,7 +7,7 @@
 import re
 from typing import Optional, Set
 from core.base_module import BaseModule, ModuleContext, ModuleResponse
-from config import get_bot_qq_list, get_bot_priority
+from config import get_bot_qq_list, get_bot_priority, DEBUG_MODE
 import main  # 导入main模块以访问get_online_bots
 from .taobao import TaobaoConverter
 from .jingdong import JingdongConverter
