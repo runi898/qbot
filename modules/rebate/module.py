@@ -155,36 +155,38 @@ class RebateModule(BaseModule):
             是否应该响应
         """
         current_bot = context.self_id
-        debug = self.config.get("debug", False)
+        debug = self.config.get("debug", False) or DEBUG_MODE  # 使用全局DEBUG_MODE
+        
+        # 总是输出基本信息用于调试
+        print(f"[{self.name}] === 优先级检查开始 ===")
+        print(f"[{self.name}] 当前机器人: {current_bot}")
+        print(f"[{self.name}] 优先级列表: {self.bot_priority}")
         
         # 如果当前机器人不在优先级列表中,默认响应
         if current_bot not in self.bot_priority:
-            if debug:
-                print(f"[{self.name}] 当前机器人({current_bot})不在优先级列表中,默认响应")
+            print(f"[{self.name}] 当前机器人({current_bot})不在优先级列表中,默认响应")
             return True
         
         # 获取在线机器人列表
         online_bots = main.get_online_bots()
-        
-        if debug:
-            print(f"[{self.name}] 当前在线机器人: {sorted(online_bots)}")
+        print(f"[{self.name}] 当前在线机器人: {sorted(online_bots)}")
         
         # 找出在线且在优先级列表中的机器人
         online_priority_bots = [bot for bot in self.bot_priority if bot in online_bots]
+        print(f"[{self.name}] 在线的优先级机器人: {online_priority_bots}")
         
         if not online_priority_bots:
             # 没有配置的机器人在线,默认响应
-            if debug:
-                print(f"[{self.name}] 没有配置的机器人在线,默认响应")
+            print(f"[{self.name}] 没有配置的机器人在线,默认响应")
             return True
         
         # 检查当前机器人是否是优先级最高的在线机器人
         highest_priority_bot = online_priority_bots[0]
         should_respond = (current_bot == highest_priority_bot)
         
-        if debug:
-            print(f"[{self.name}] 优先级最高的在线机器人: {highest_priority_bot}")
-            print(f"[{self.name}] 当前机器人({current_bot}) {'应该' if should_respond else '不应该'}响应")
+        print(f"[{self.name}] 优先级最高的在线机器人: {highest_priority_bot}")
+        print(f"[{self.name}] 当前机器人({current_bot}) {'应该' if should_respond else '不应该'}响应")
+        print(f"[{self.name}] === 优先级检查结束 ===")
         
         return should_respond
     

@@ -26,6 +26,7 @@ class JDNewsCollector:
     """京东线报收集器（内部类）"""
 
     def __init__(self, config: Dict):
+        self.name = "JDCollector"  # 添加name属性
         self.config = config
         self.api_config = config.get("api", {})
         self.keywords = config.get("keywords", ["京东", "JD", "jd.com", "3.cn"])
