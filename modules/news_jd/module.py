@@ -19,7 +19,7 @@ from typing import Optional, Dict, List
 
 from core.base_module import BaseModule, ModuleContext, ModuleResponse
 from modules.news_collector.database import news_db
-from config import NEWS_COLLECTOR_CONFIG, NEWS_FORWARDER_CONFIG, JINGDONG_CONFIG, DEBUG_MODE
+from config import NEWS_COLLECTOR_CONFIG, NEWS_FORWARDER_CONFIG, JINGDONG_CONFIG, DEBUG_MODE, get_bot_qq_list
 
 
 class JDNewsCollector:
@@ -222,9 +222,18 @@ class JDNewsModule(BaseModule):
             or NEWS_COLLECTOR_CONFIG.get("settings", {}).get("dedup_window_seconds")
             or 300
         )
+        # 获取机器人QQ列表(用于过滤机器人消息)
+        self.bot_qq_list = get_bot_qq_list()
         print(f"[{self.name}] 模块已加载 (v{self.version})")
+        print(f"[{self.name}] 机器人QQ列表: {self.bot_qq_list}")
 
     async def can_handle(self, message: str, context: ModuleContext) -> bool:
+        # 过滤所有机器人的消息(防止机器人间互相回复造成循环)
+        if context.user_id in self.bot_qq_list:
+            if DEBUG_MODE:
+                print(f"[{self.name}] 跳过机器人消息: {context.user_id}")
+            return False
+        
         if self.config.get("debug", False):
             print(f"[{self.name}] can_handle 检查: group_id={context.group_id}, self_id={context.self_id}")
             print(f"[{self.name}] 收集器群组: {self.collector_groups}")

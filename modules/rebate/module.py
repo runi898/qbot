@@ -7,6 +7,7 @@
 import re
 from typing import Optional, Set
 from core.base_module import BaseModule, ModuleContext, ModuleResponse
+from config import get_bot_qq_list
 from .taobao import TaobaoConverter
 from .jingdong import JingdongConverter
 
@@ -60,9 +61,13 @@ class RebateModule(BaseModule):
         """加载时初始化转换器"""
         await super().on_load(config)
         
+        # 获取机器人QQ列表(用于过滤机器人消息)
+        self.bot_qq_list = get_bot_qq_list()
+        
         # 调试：打印接收到的配置
         print(f"[{self.name}] 接收到的配置keys: {list(config.keys())}")
         print(f"[{self.name}] settings keys: {list(config.get('settings', {}).keys())}")
+        print(f"[{self.name}] 机器人QQ列表: {self.bot_qq_list}")
         
         # 配置
         self.config = config
@@ -143,10 +148,10 @@ class RebateModule(BaseModule):
             print(f"[{self.name}] can_handle 检查: group_id={context.group_id}, user_id={context.user_id}, self_id={context.self_id}")
             print(f"[{self.name}] 监听群列表: {self.watched_groups}")
         
-        # 跳过机器人自己的消息
-        if context.user_id == context.self_id:
+        # 跳过所有机器人的消息(防止机器人间互相回复造成循环)
+        if context.user_id in self.bot_qq_list:
             if debug:
-                print(f"[{self.name}] 跳过机器人自己的消息")
+                print(f"[{self.name}] 跳过机器人消息: {context.user_id}")
             return False
         
         # 处理私聊消息（group_id 为 None）
