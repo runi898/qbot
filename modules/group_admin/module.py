@@ -7,10 +7,16 @@
 
 import re
 import json
+import sys
+import os
 from typing import Optional
 from core.base_module import BaseModule, ModuleContext, ModuleResponse
 import main
 from config import get_bot_qq_list, BOT_PRIORITY, DEBUG_MODE
+
+# 导入京东短链转换器
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'news_jd'))
+from dwz import JDShortUrlConverter
 
 
 
@@ -66,6 +72,11 @@ class GroupAdminModule(BaseModule):
         self.reply_recall_pattern = re.compile(r'\[CQ:reply,id=(\d+)\].*?撤回', re.IGNORECASE)
         # 匹配@撤回: [CQ:at,qq=123456]...撤回 或 [CQ:at,qq=123456]...撤回 5
         self.at_recall_pattern = re.compile(r'\[CQ:at,qq=(\d+).*?\].*?撤回(?:\s+(\d+))?', re.IGNORECASE)
+        # 匹配 dwz 指令: dwz 京东链接
+        self.dwz_pattern = re.compile(r'^dwz\s+(https?://[^\s]+)', re.IGNORECASE)
+        
+        # 初始化京东短链转换器
+        self.jd_converter = JDShortUrlConverter(sign_url="http://192.168.8.2:3001/sign")
         
         print(f"[{self.name}] 模块已加载 (v{self.version})")
         print(f"[{self.name}] 监听群: {self.watched_groups}")
@@ -218,14 +229,45 @@ class GroupAdminModule(BaseModule):
         if not self.should_respond_by_priority(context):
             return False
         
-        # 6. 内容匹配：检查是否是撤回指令（包括引用撤回和@撤回）
+        # 6. 内容匹配：检查是否是撤回指令（包括引用撤回和@撤回）或 dwz 指令
         return bool(self.recall_pattern.search(message) or 
                    self.reply_recall_pattern.search(message) or 
-                   self.at_recall_pattern.search(message))
+                   self.at_recall_pattern.search(message) or
+                   self.dwz_pattern.search(message))
     
     async def handle(self, message: str, context: ModuleContext) -> Optional[ModuleResponse]:
         """处理消息并返回响应"""
         try:
+            # 0. 检查 dwz 指令
+            dwz_match = self.dwz_pattern.search(message)
+            if dwz_match:
+                jd_url = dwz_match.group(1)
+                if DEBUG_MODE:
+                    print(f"[{self.name}] 检测到 dwz 指令，目标链接: {jd_url}")
+                
+                try:
+                    # 调用转换器（静默模式）
+                    result = self.jd_converter.convert(jd_url, verbose=False)
+                    
+                    if result['success']:
+                        short_url = result['short_url']
+                        response_text = f"✅ 短链接转换成功\n{short_url}"
+                    else:
+                        error_msg = result.get('error', '未知错误')
+                        response_text = f"❌ 转换失败: {error_msg}"
+                    
+                    return ModuleResponse(
+                        content=response_text,
+                        auto_recall=False  # 不自动撤回
+                    )
+                except Exception as e:
+                    if DEBUG_MODE:
+                        print(f"[{self.name}] dwz 转换异常: {str(e)}")
+                    return ModuleResponse(
+                        content=f"❌ 转换异常: {str(e)}",
+                        auto_recall=False  # 不自动撤回
+                    )
+            
             # 1. 优先检查引用撤回
             reply_match = self.reply_recall_pattern.search(message)
             if reply_match:

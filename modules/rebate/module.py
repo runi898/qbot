@@ -36,9 +36,10 @@ class RebateModule(BaseModule):
         )
         
         # 京东正则（添加京东口令支持：￥xxx￥ MF/CA 或 ！xxx！ MF/CA）
+        # 注意：链接匹配时排除 [ 和 " 以避免匹配到 CQ 码和 JSON 数据
         self.jingdong_regex = re.compile(
-            r'https?:\/\/[^\s<>]*(?:3\.cn|jd\.|jingxi)[^\s<>]+|'
-            r'(?:￥|！|\$)[0-9A-Za-z()]+(?:￥|！|\$)\s*(?:MF|CA)[0-9]+|'
+            r'https?:\/\/[^\s<>\[\"]*(?:3\.cn|jd\.|jingxi)[^\s<>\[\"]+|'
+            r'(?:￥|！|\$)[0-9A-Za-z()]+(?:￥|！|\$)\s+(?:MF|CA)[0-9]+|'
             r'[^一-龥0-9a-zA-Z=;&?-_.<>:\'\",{}][0-9a-zA-Z()]{16}[^一-龥0-9a-zA-Z=;&?-_.<>:\'\",{}\s]'
         )
     
@@ -274,6 +275,8 @@ class RebateModule(BaseModule):
         # 处理京东链接
         if self.jingdong_converter:
             jingdong_matches = self.jingdong_regex.findall(message)
+            # 去重：同一个链接可能在 JSON 和纯文本中都出现
+            jingdong_matches = list(dict.fromkeys(jingdong_matches))  # 保持顺序的去重
         if debug:
             print(f"[{self.name}] 京东正则匹配结果: {jingdong_matches}")
         for match in jingdong_matches:

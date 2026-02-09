@@ -4,9 +4,15 @@
 
 import aiohttp
 import json
+import sys
+import os
 from typing import Optional, Set
 from urllib.parse import quote
 from config import DEBUG_MODE
+
+# 导入京东短链转换器
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'news_jd'))
+from dwz import JDShortUrlConverter
 
 
 class JingdongConverter:
@@ -24,6 +30,9 @@ class JingdongConverter:
         
         self.base_url = "http://api.zhetaoke.com:20000/api/open_jing_union_open_promotion_byunionid_get.ashx"
         self.command_url = "http://japi.jingtuitui.com/api/get_goods_command"
+        
+        # 初始化短链转换器
+        self.dwz_converter = JDShortUrlConverter(sign_url="http://192.168.8.2:3001/sign")
     
     async def convert(self, material_url: str, processed_titles: Set[str], show_commission: bool = True) -> Optional[str]:
         """
@@ -43,6 +52,23 @@ class JingdongConverter:
                  if DEBUG_MODE:
                      print(f"[京东转换器] 检测到优惠券链接，跳过转链: {material_url}")
                  return f"优惠券: {material_url}"
+            
+            # 新增：如果是 item.m.jd.com 链接，先转换为短链接
+            if material_url.startswith("https://item.m.jd.com"):
+                if DEBUG_MODE:
+                    print(f"[京东转换器] 检测到 item.m.jd.com 链接，先转换为短链接")
+                try:
+                    dwz_result = self.dwz_converter.convert(material_url, verbose=False)
+                    if dwz_result['success']:
+                        material_url = dwz_result['short_url']
+                        if DEBUG_MODE:
+                            print(f"[京东转换器] 短链转换成功: {material_url}")
+                    else:
+                        if DEBUG_MODE:
+                            print(f"[京东转换器] 短链转换失败，使用原链接: {dwz_result.get('error', '未知错误')}")
+                except Exception as e:
+                    if DEBUG_MODE:
+                        print(f"[京东转换器] 短链转换异常，使用原链接: {str(e)}")
 
             async with aiohttp.ClientSession() as session:
                 # 第一步：获取商品信息和短链接
