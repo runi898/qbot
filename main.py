@@ -36,6 +36,9 @@ from config import (
     get_bot_qq_list  # NEW: Import to get all bot QQs
 )
 
+# 导入颜色工具
+from utils.colors import green, red, yellow, blue, SUCCESS, ERROR, WARNING, INFO
+
 # 从配置字典中提取具体的 API 参数（向后兼容）
 APP_KEY = TAOBAO_CONFIG.get("app_key", "")
 SID = TAOBAO_CONFIG.get("sid", "")
@@ -1381,8 +1384,8 @@ async def custom_ws_adapter(websocket: WebSocket):
                         connected_qq = self_id
                         # online_bots.add(self_id)  # 记录在线状态
                         bot_manager.add_bot(self_id, websocket)
-                        print(f"[系统] ✅ 成功连接到 QQ: {self_id}")
-                        print(f"[系统] 当前在线机器人: {sorted(bot_manager.get_online_bots())}")
+                        print(f"[系统] {SUCCESS} 成功连接到 QQ: {green(str(self_id))}")
+                        print(f"[系统] 当前在线机器人: {blue(str(sorted(bot_manager.get_online_bots())))}")
                         
                         # 获取该机器人的群列表（用于优先级判断）
                         try:
@@ -1538,13 +1541,13 @@ async def custom_ws_adapter(websocket: WebSocket):
                             asyncio.create_task(delayed_recall(response_msg_id))
 
                 # 处理撤回响应（检查权限错误）
-                elif echo and ("recall_" in echo or "user_recall_" in echo):
+                elif echo and echo.startswith("recall_"):
                     if event.get("status") == "failed":
                         retcode = event.get("retcode")
                         if retcode == 200:
-                            print(f"[群管理模块] ❌ 撤回失败: 权限不足 (200) - 机器人无法撤回管理员/群主消息，或消息已失效")
+                            print(f"[群管理模块] {ERROR} 撤回失败: 权限不足 (200) - 机器人无法撤回管理员/群主消息，或消息已失效")
                         elif retcode == 100:
-                            print(f"[群管理模块] ❌ 撤回失败: 参数错误 (100)")
+                            print(f"[群管理模块] {ERROR} 撤回失败: 参数错误 (100)")
                 
                 # 处理特定用户历史消息响应（用于@撤回）
                 elif echo and echo.startswith("get_user_history_"):
@@ -1613,14 +1616,25 @@ async def custom_ws_adapter(websocket: WebSocket):
 
     finally:
         retry_task.cancel()
+        
+        # 无论连接状态如何，只要有已连接的QQ，就进行清理和通知
+        if connected_qq:
+            # 尝试通过模块通知离线
+            try:
+                if module_loader:
+                    notifier = module_loader.get_module("离线通知模块")
+                    if notifier and hasattr(notifier, "send_offline_notification"):
+                        await notifier.send_offline_notification(connected_qq)
+            except Exception as notify_err:
+                 print(f"[系统] ⚠️ 离线通知调用失败: {notify_err}")
+
+            bot_manager.remove_bot(connected_qq)
+            print(f"[系统] ❌ QQ {connected_qq} 连接已关闭")
+            print(f"[系统] 当前在线机器人: {sorted(bot_manager.get_online_bots())}")
+
         if websocket.client_state != WebSocketState.DISCONNECTED:
             await websocket.close()
             debug_log("WebSocket连接已关闭")
-            if connected_qq:  # 移除离线状态
-                # online_bots.discard(connected_qq)
-                bot_manager.remove_bot(connected_qq)
-                print(f"[系统] ❌ QQ {connected_qq} 连接已关闭")
-                print(f"[系统] 当前在线机器人: {sorted(bot_manager.get_online_bots())}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
@@ -1651,6 +1665,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         NEWS_FORWARDER_CONFIG,
         REBATE_MODULE_CONFIG,
         GROUP_ADMIN_CONFIG,
+        OFFLINE_NOTIFIER_CONFIG,
     )
     
     # 加载线报收集模块
@@ -1690,6 +1705,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             print("[系统] 群管理模块加载成功")
         except Exception as e:
             print(f"[系统] 群管理模块加载失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # 加载离线通知模块
+    if OFFLINE_NOTIFIER_CONFIG.get('enabled', True):
+        try:
+            await module_loader.load_module_from_path('modules/offline_notifier', OFFLINE_NOTIFIER_CONFIG)
+            print("[系统] 离线通知模块加载成功")
+        except Exception as e:
+            print(f"[系统] 离线通知模块加载失败: {e}")
             import traceback
             traceback.print_exc()
     

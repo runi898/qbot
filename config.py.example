@@ -1,10 +1,7 @@
 """
 QBot 统一配置文件 (示例)
 
-所有配置都在这里管理，包括：
-- 全局配置
-- 模块配置
-- API 密钥
+请复制此文件为 config.py 并填入您的实际配置
 """
 
 # ========== 全局配置 ==========
@@ -14,8 +11,8 @@ DEBUG_MODE = False  # True 显示日志，False 不显示
 
 # 详细日志配置（控制业务日志）
 VERBOSE_LOGGING = {
-    "enabled": False,  # 总开关：True=打印详细日志， False =只打印基础日志
-    "message_received": False,  # 接收到的消息
+    "enabled": True,  # 总开关：True=打印详细日志， False =只打印基础日志
+    "message_received": True,  # 接收到的消息
     "message_processing": False,  # 消息处理过程
     "module_handling": False,  # 模块处理日志
     "forward_logs": False,  # 转发日志
@@ -24,7 +21,6 @@ VERBOSE_LOGGING = {
 
 
 # OneBot 服务器配置
-
 ONEBOT_HOST = "0.0.0.0"
 ONEBOT_PORT = 5670
 
@@ -43,23 +39,72 @@ CLEANUP_HOUR = 3  # 每天几点清理（24小时制）
 
 # 折淘客 API 配置
 TAOBAO_CONFIG = {
-    "app_key": "",  # 你的折淘客 APP_KEY
-    "sid": "",  # 你的折淘客 SID
-    "pid": "",  # 你的淘宝联盟 PID
-    "relation_id": "",  # 你的渠道 ID
+    "app_key": "YOUR_TAOBAO_APP_KEY",
+    "sid": "YOUR_SID",
+    "pid": "YOUR_PID",
+    "relation_id": "YOUR_RELATION_ID",
 }
 
 # 折京客 API 配置
 JINGDONG_CONFIG = {
-    "appkey": "",  # 你的折京客 APPKEY
-    "union_id": "",  # 你的京东联盟 ID
-    "position_id": "",  # 你的推广位 ID
+    "appkey": "YOUR_JD_APPKEY",
+    "union_id": "YOUR_UNION_ID",
+    "position_id": "YOUR_POSITION_ID",
 }
 
 # 京推推 API 配置（口令转链）
 JINGTUITUI_CONFIG = {
-    "appid": "",  # 你的京推推 APPID
-    "appkey": "",  # 你的京推推 APPKEY
+    "appid": "YOUR_JTT_APPID",
+    "appkey": "YOUR_JTT_APPKEY",
+}
+
+# ========== 通知配置 ==========
+
+# 通知渠道配置(全局共享,可被多个模块使用)
+NOTIFICATION_CONFIG = {
+    # 邮件通知
+    "email": {
+        "enabled": False,
+        "smtp_host": "smtp.qq.com",
+        "smtp_port": 465,
+        "smtp_user": "your_email@qq.com",
+        "smtp_password": "your_smtp_password",
+        "from_addr": "your_email@qq.com",
+        "to_addrs": ["admin@example.com"]
+    },
+    
+    # Webhook通知(通用HTTP POST)
+    "webhook": {
+        "enabled": False,
+        "url": "https://your-webhook-url.com/notify",
+        "method": "POST",
+        "headers": {
+            "Content-Type": "application/json"
+        }
+    },
+    
+    # 钉钉机器人
+    "dingtalk": {
+        "enabled": False,
+        "webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN",
+        "secret": ""  # 可选,如果启用了加签
+    },
+    
+    # Telegram Bot
+    "telegram": {
+        "enabled": False,
+        "bot_token": "YOUR_BOT_TOKEN",
+        "chat_id": "YOUR_CHAT_ID",
+        # 反代 API (可选,用于国内网络访问)
+        "api_base_url": "https://api.telegram.org",  # 例如: "https://api.telegram.org" 或自建反代
+        # SOCKS5 代理 (可选,二选一)
+        "proxy": {
+            "enabled": False,
+            "proxy_url": "socks5://127.0.0.1:1080",
+            "username": "",
+            "password": ""
+        }
+    }
 }
 
 # ========== 机器人联动配置 ==========
@@ -68,13 +113,13 @@ JINGTUITUI_CONFIG = {
 # 列表顺序即为优先级,排在前面的优先级更高
 # 适用于：返利响应、群管理指令响应
 # 只有优先级最高的在线机器人会执行操作
-BOT_PRIORITY = []  # 按优先级排序，例如 [123456789, 987654321]
+BOT_PRIORITY = [123456789, 987654321]  # 按优先级排序
 
 # ========== 线报系统配置 ==========
 
 # 线报收集配置
 NEWS_COLLECTOR_CONFIG = {
-    "enabled": False,
+    "enabled": True,
     "priority": 30,
     "settings": {
         # 收集器配置
@@ -82,7 +127,7 @@ NEWS_COLLECTOR_CONFIG = {
             {
                 "name": "京东线报收集",
                 "type": "jd",
-                "groups": [],  # 监听这些群的京东线报
+                "groups": [12345678, 87654321],  # 监听这些群的京东线报
             }
         ],
         # 去重配置（性能优先）
@@ -97,7 +142,7 @@ NEWS_COLLECTOR_CONFIG = {
 
 # 线报转发配置
 NEWS_FORWARDER_CONFIG = {
-    "enabled": False,
+    "enabled": True,
     "priority": 35,
     "settings": {
         # 转发账号配置（与收集账号独立）
@@ -106,10 +151,10 @@ NEWS_FORWARDER_CONFIG = {
         # 2. "qq": [QQ1, QQ2, QQ3] - 多个QQ轮流转发，自动跳过离线的
         "forwarders": [
             {
-                "qq": [],        # 多个QQ轮流转发（替换为实际QQ号）多个qq用, 隔开
+                "qq": [123456789, 987654321],        # 多个QQ轮流转发
                 # 或者单个QQ：
-                # "qq": 777777,                # 单个QQ转发
-                "targets": [],   # 转发到这些群（替换为实际群号）多个群用, 隔开
+                # "qq": 123456789,             # 单个QQ转发
+                "targets": [11111111],   # 转发到这些群
             },
         ],
         # 转发策略
@@ -142,14 +187,14 @@ REBATE_MODULE_CONFIG = {
 
         # ===== 1. 监听群配置 =====
         # 只有这些群的消息才会触发返利转换
-        "watched_groups": [],  # 返利群号
+        "watched_groups": [12345678],  # 返利群号
         
         # ===== 2. 管理员配置 =====
         # 管理员QQ列表（这些QQ的私聊会显示佣金）
-        "admin_qq_list": [],
+        "admin_qq_list": [123456789],
         
         # 管理员群列表（这些群的所有人都会看到佣金）
-        "admin_group_list": [],
+        "admin_group_list": [12345678],
         
         # ===== 3. 佣金显示规则 =====
         "commission_display": {
@@ -191,10 +236,34 @@ GROUP_ADMIN_CONFIG = {
     "priority": 15,  # 高优先级，在返利模块之前
     "settings": {
         # 监听群列表
-        "watched_groups": [],  # 需要配置实际的群号
+        "watched_groups": [12345678],  # 需要配置实际的群号
         
         # 管理员QQ列表（只有这些QQ可以使用群管理功能）
-        "admin_qq_list": [],  # 需要配置实际的管理员QQ
+        "admin_qq_list": [123456789],  # 需要配置实际的管理员QQ
+    }
+}
+
+
+# 离线通知模块配置
+OFFLINE_NOTIFIER_CONFIG = {
+    "enabled": True,
+    "priority": 5,
+    "settings": {
+        # 监测的机器人QQ列表(留空则监测所有机器人)
+        "monitored_bots": [],  # 例如: [435438881, 3121201314]
+        
+        # 检测间隔(秒)
+        "check_interval": 30,
+        
+        # 通知开关
+        "notify_offline": True,  # 是否发送离线通知
+        "notify_online": True,   # 是否发送上线通知
+        
+        # 通知内容模板
+        "templates": {
+            "offline": "⚠️ QBot 告警\n机器人 {bot_qq} 已离线\n时间: {time}",
+            "online": "✅ QBot 通知\n机器人 {bot_qq} 已上线\n时间: {time}"
+        }
     }
 }
 
@@ -211,26 +280,11 @@ MODULE_CONFIGS = {
     "news_forwarder": NEWS_FORWARDER_CONFIG,
     # 群管理模块
     "group_admin": GROUP_ADMIN_CONFIG,
+    # 离线通知模块
+    "offline_notifier": OFFLINE_NOTIFIER_CONFIG,
 }
 
-# ========== 指令配置 ==========
 
-COMMANDS = {
-    "指令": "显示所有支持的指令及其说明\n",
-    "撤回 n": "撤回指定群最近 n 条消息，例如 '撤回 5'\n",
-    "撤回全部": "撤回数据库中所有消息\n",
-    "引用消息 撤回": "撤回引用的消息\n",
-    "@某人 撤回": "撤回某人所有消息\n",
-    "撤回id xxx": "撤回指定id消息\n",
-    "清理全部已撤回": "清理所有已撤回消息\n",
-    "清理3天": "清理3天前的已撤回消息\n",
-    "历史消息": "获取最近20条未删除群历史消息\n",
-    "查数据库": "查询数据库中所有消息记录\n",
-    "数据库统计": "查看数据库使用情况\n",
-    "清理数据库": "清理7天前的已撤回消息\n",
-    "导出数据库": "导出数据库为excel格式\n",
-    "定时 n": "启动定时撤回，设置每隔 n 分钟自动撤回\n"
-}
 
 # ========== 辅助函数 ==========
 

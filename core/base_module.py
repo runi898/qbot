@@ -8,6 +8,18 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 
+# 导入颜色工具
+try:
+    from utils.colors import green, red, yellow, SUCCESS, ERROR, WARNING
+except ImportError:
+    # 如果导入失败，使用无颜色版本
+    def green(text): return text
+    def red(text): return text
+    def yellow(text): return text
+    SUCCESS = "✅"
+    ERROR = "❌"
+    WARNING = "⚠️"
+
 
 @dataclass
 class ModuleContext:
@@ -118,16 +130,16 @@ class BaseModule(ABC):
             config: 模块配置字典
         """
         self.config = config
-        print(f"[{self.name}] 模块已加载 (v{self.version})")
+        print(f"[{self.name}] {SUCCESS} 模块已加载 (v{green(self.version)})")
     
     async def on_unload(self) -> None:
         """模块卸载时调用"""
-        print(f"[{self.name}] 模块已卸载")
+        print(f"[{self.name}] {WARNING} 模块已卸载")
     
     async def on_enable(self) -> None:
         """模块启用时调用"""
         self.enabled = True
-        print(f"[{self.name}] 模块已启用")
+        print(f"[{self.name}] {SUCCESS} 模块已启用")
     
     async def on_disable(self) -> None:
         """模块禁用时调用"""
