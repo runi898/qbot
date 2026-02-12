@@ -1,0 +1,7 @@
+{
+    "enabled": true,
+    "priority": 40,
+    "settings": {
+        "max_subscriptions": 20
+    }
+}

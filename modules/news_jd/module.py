@@ -308,7 +308,73 @@ class JDNewsModule(BaseModule):
             if DEBUG_MODE:
                 print(f"[{self.name}] 已转发到群 {target_group}")
 
+        # 3) 触发关键词订阅通知（异步）
+        try:
+            from modules.news_subscription.module import SubscriptionManager
+            # 获取管理器的单例实例
+            sub_manager = SubscriptionManager()
+            if sub_manager and sub_manager.initialized:
+                # 异步执行匹配和通知，不阻塞主流程
+                asyncio.create_task(self._notify_subscribers(context, result, sub_manager))
+        except ImportError:
+            pass  # 订阅模块可能被禁用或未加载
+        except Exception as e:
+            print(f"[{self.name}] 触发订阅通知失败: {e}")
+
         return None
+
+    async def _notify_subscribers(self, context: ModuleContext, news_data: dict, sub_manager):
+        """
+        检查并通知订阅用户
+        """
+        try:
+            title = news_data.get("title", "")
+            # 组合搜索内容：标题 + 原始文案(可能有额外信息)
+            content_to_match = f"{title} {news_data.get('converted_message', '')}"
+            
+            matched_user_ids = sub_manager.get_matches(content_to_match)
+            
+            if not matched_user_ids:
+                return
+
+            if DEBUG_MODE:
+                print(f"[{self.name}] 命中订阅主要用户: {matched_user_ids}")
+            
+            # 构建通知消息
+            notify_msg = (
+                f"【线报提醒】您订阅的关键词有新内容！\n"
+                f"----------------\n"
+                f"{news_data.get('converted_message', '')}\n"
+                f"----------------\n"
+                f"退订请回复：取消订阅 关键词"
+            )
+
+            # 获取Bot实例
+            from main import bot_manager
+            # 尝试使用当前上下文的Bot，如果找不到则用第一个在线Bot
+            bot = bot_manager.get_bot(context.self_id)
+            if not bot:
+                # Fallback: 找任意一个在线Bot
+                all_bots = bot_manager.get_all_bots()
+                if all_bots:
+                    bot = all_bots[0]
+            
+            if not bot:
+                print(f"[{self.name}] 没有在线Bot可用于发送通知")
+                return
+
+            for user_id in matched_user_ids:
+                # 避免发给自己（如果在私聊测试）
+                if str(user_id) == str(context.user_id) and context.message_type == "private":
+                    continue
+                    
+                # 发送私聊
+                await bot.send_private_msg(user_id=user_id, message=notify_msg)
+                if DEBUG_MODE:
+                    print(f"[{self.name}] 已发送订阅通知 -> {user_id}")
+                    
+        except Exception as e:
+            print(f"[{self.name}] 发送订阅通知异常: {e}")
 
     def _build_collector_groups(self) -> Dict[int, List[int]]:
         """构建收集器群组映射（QQ号 -> 群列表）"""

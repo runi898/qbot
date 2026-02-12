@@ -287,6 +287,156 @@ class NewsDatabase:
             "pending": pending,
         }
 
+    # ========== 订阅功能支持 ==========
+
+    def init_subscription_table(self):
+        """初始化订阅表（如果不存在）"""
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        
+        # 创建订阅表
+        # user_id: 订阅用户的QQ
+        # keyword: 订阅关键词
+        # is_paused: 是否暂停订阅 (0: 正常, 1: 暂停)
+        # created_at: 创建时间
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS subscriptions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                keyword TEXT NOT NULL,
+                is_paused BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, keyword) ON CONFLICT IGNORE
+            )
+            """
+        )
+        
+        # 创建索引
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_subs_user ON subscriptions(user_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_subs_keyword ON subscriptions(keyword)"
+        )
+        
+        conn.commit()
+        conn.close()
+
+    def get_all_subscriptions(self) -> List[Dict]:
+        """
+        获取所有有效的订阅信息（用于启动时加载到内存）
+        Returns:
+            List[Dict]: [{'user_id': 123, 'keyword': '抽纸', 'is_paused': 0}, ...]
+        """
+        self.init_subscription_table()  # 确保表存在
+        
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "SELECT user_id, keyword, is_paused FROM subscriptions"
+        )
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return [
+            {
+                "user_id": row[0],
+                "keyword": row[1],
+                "is_paused": bool(row[2])
+            }
+            for row in rows
+        ]
+
+    def add_subscription(self, user_id: int, keyword: str) -> bool:
+        """添加订阅"""
+        self.init_subscription_table()
+        
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute(
+                "INSERT INTO subscriptions (user_id, keyword) VALUES (?, ?)",
+                (user_id, keyword)
+            )
+            success = cursor.rowcount > 0
+            conn.commit()
+            return success
+        except sqlite3.IntegrityError:
+            return False  # 已存在
+        finally:
+            conn.close()
+
+    def remove_subscription(self, user_id: int, keyword: str) -> bool:
+        """取消订阅"""
+        self.init_subscription_table()
+        
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "DELETE FROM subscriptions WHERE user_id = ? AND keyword = ?",
+            (user_id, keyword)
+        )
+        
+        success = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return success
+
+    def clear_user_subscriptions(self, user_id: int) -> int:
+        """清空用户的所有订阅"""
+        self.init_subscription_table()
+        
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "DELETE FROM subscriptions WHERE user_id = ?",
+            (user_id,)
+        )
+        
+        count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return count
+
+    def get_user_subscriptions(self, user_id: int) -> List[str]:
+        """获取用户的所有订阅关键词"""
+        self.init_subscription_table()
+        
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "SELECT keyword FROM subscriptions WHERE user_id = ?",
+            (user_id,)
+        )
+        
+        keywords = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        return keywords
+
+    def set_subscription_pause(self, user_id: int, pause: bool) -> int:
+        """设置用户订阅暂停状态"""
+        self.init_subscription_table()
+        
+        conn = sqlite3.connect(self.db_file)
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "UPDATE subscriptions SET is_paused = ? WHERE user_id = ?",
+            (1 if pause else 0, user_id)
+        )
+        
+        count = cursor.rowcount
+        conn.commit()
+        conn.close()
+        return count
+
 
 # 全局数据库实例
 news_db = NewsDatabase()

@@ -1276,10 +1276,14 @@ async def _handle_message_event(event: Dict, websocket: WebSocket):
                 try:
                     import json
                     
-                    # 根据 group_id 判断是群聊还是私聊
                     if group_id is None:
                         # 私聊消息
-                        echo_prefix = "module_response_recall_" if (getattr(module_response, 'auto_recall', False)) else "module_response_"
+                        if getattr(module_response, 'auto_recall', False):
+                            delay = getattr(module_response, 'recall_delay', 30)
+                            echo_prefix = f"module_response_recall_{delay}_"
+                        else:
+                            echo_prefix = "module_response_"
+                            
                         reply_action = {
                             "action": "send_private_msg",
                             "params": {
@@ -1291,9 +1295,12 @@ async def _handle_message_event(event: Dict, websocket: WebSocket):
                         verbose_log("module_handling", f"准备发送私聊消息到用户{user_id}")
                     else:
                         # 群聊消息
-                        echo_prefix = "module_response_recall_" if (getattr(module_response, 'auto_recall', False)) else "module_response_"
-                        if echo_prefix == "module_response_recall_":
-                             verbose_log("module_handling", f"消息需自动撤回，使用echo前缀: {echo_prefix}")
+                        if getattr(module_response, 'auto_recall', False):
+                            delay = getattr(module_response, 'recall_delay', 30)
+                            echo_prefix = f"module_response_recall_{delay}_"
+                            verbose_log("module_handling", f"消息需自动撤回 ({delay}s)，使用echo前缀: {echo_prefix}")
+                        else:
+                            echo_prefix = "module_response_"
                         
                         reply_action = {
                             "action": "send_group_msg",
@@ -1536,11 +1543,22 @@ async def custom_ws_adapter(websocket: WebSocket):
                     if event.get("status") == "ok" and "data" in event:
                         response_msg_id = event["data"].get("message_id")
                         if response_msg_id:
-                            verbose_log("module_handling", f"模块响应消息ID: {response_msg_id}，准备延迟撤回")
+                            # 解析 delay: module_response_recall_{delay}_{msg_id}
+                            # parts: ['module', 'response', 'recall', '30', '12345']
+                            try:
+                                parts = echo.split("_")
+                                if len(parts) >= 5 and parts[3].isdigit():
+                                    delay = int(parts[3])
+                                else:
+                                    delay = 30
+                            except:
+                                delay = 30
+
+                            verbose_log("module_handling", f"模块响应消息ID: {response_msg_id}，准备延迟 {delay}秒 撤回")
                             
                             # 创建延迟撤回任务
-                            async def delayed_recall(msg_id, delay=3):
-                                await asyncio.sleep(delay)
+                            async def delayed_recall(msg_id, delay_seconds):
+                                await asyncio.sleep(delay_seconds)
                                 try:
                                     recall_payload = {
                                         "action": "delete_msg",
@@ -1552,7 +1570,7 @@ async def custom_ws_adapter(websocket: WebSocket):
                                 except Exception as e:
                                     debug_log(f"[ModuleLoader] 自动撤回失败: {e}")
                             
-                            asyncio.create_task(delayed_recall(response_msg_id))
+                            asyncio.create_task(delayed_recall(response_msg_id, delay))
 
                 # 处理撤回响应（检查权限错误）
                 elif echo and echo.startswith("recall_"):
@@ -1714,6 +1732,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             print("[系统] 返利模块加载成功")
         except Exception as e:
             print(f"[系统] 返利模块加载失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # 加载订阅模块
+    NEWS_SUBSCRIPTION_CONFIG = {
+        "enabled": True,
+        "priority": 15,
+        "settings": {
+            "max_subscriptions": 20
+        }
+    }
+    # 尝试从config.py获取配置
+    try:
+        from config import MODULE_CONFIGS
+        if "news_subscription" in MODULE_CONFIGS:
+            NEWS_SUBSCRIPTION_CONFIG = MODULE_CONFIGS["news_subscription"]
+    except ImportError:
+        pass
+
+    if NEWS_SUBSCRIPTION_CONFIG.get('enabled', True):
+        try:
+            await module_loader.load_module_from_path('modules/news_subscription', NEWS_SUBSCRIPTION_CONFIG)
+            print("[系统] 订阅模块加载成功")
+        except Exception as e:
+            print(f"[系统] 订阅模块加载失败: {e}")
             import traceback
             traceback.print_exc()
     
