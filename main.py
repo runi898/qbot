@@ -26,7 +26,6 @@ from config import (
     TAOBAO_CONFIG,
     JINGDONG_CONFIG,
     JINGTUITUI_CONFIG,
-    COMMANDS,
     AUTO_CLEANUP_ENABLED,
     CLEANUP_DAYS,
     CLEANUP_HOUR,
@@ -896,12 +895,21 @@ async def query_database() -> str:
         conn.close()
 
 async def query_commands() -> str:
-    if not COMMANDS:
-        debug_log("config.py中未定义指令")
-        return "暂无定义的指令"
-
+    # 临时硬编码指令列表，因为动态指令加载正在重构中
+    commands_help = {
+        "查数据库": "查询数据库统计信息",
+        "撤回 [数量]": "撤回指定数量的消息（默认20条）",
+        "定时 [开启/关闭] [间隔]": "配置定时撤回任务",
+        "指令": "显示帮助信息",
+        "清理数据库 [天数]": "清理过期的已撤回消息（默认7天）",
+        "清理全部已撤回": "清理所有已撤回消息",
+        "数据库统计": "显示数据库详细统计",
+        "历史消息 [数量]": "获取群历史消息（默认20条）",
+        "导出数据库": "导出数据库为Excel文件"
+    }
+    
     result = ["支持的指令："]
-    for cmd, desc in COMMANDS.items():
+    for cmd, desc in commands_help.items():
         result.append(f"{cmd}: {desc}")
     return "\n".join(result)
 
@@ -1298,7 +1306,13 @@ async def _handle_message_event(event: Dict, websocket: WebSocket):
                         verbose_log("module_handling", f"准备发送群消息到群{group_id} (Echo: {echo_prefix}{message_id})")
                     
                     if websocket.client_state == WebSocketState.CONNECTED:
+                        msg_content = reply_action['params']['message']
+                        verbose_log("module_handling", f"发送消息长度: {len(msg_content)}")
+                        if len(msg_content) > 4000:
+                            print(f"[警告] 消息过长 ({len(msg_content)} chars)，可能导致发送失败")
+                            
                         await websocket.send_text(json.dumps(reply_action))
+                        
                         if group_id is None:
                             verbose_log("module_handling", f"已发送模块响应到用户{user_id}")
                         else:
@@ -1600,6 +1614,11 @@ async def custom_ws_adapter(websocket: WebSocket):
                         print(f"[群管理模块] ❌ 获取历史消息失败: {event.get('message', '未知错误')}")
 
 
+                
+                elif echo and echo.startswith("module_response_"):
+                     if event.get("status") == "failed" and event.get("retcode") == 9057:
+                         print(f"[ModuleLoader] ❌ 发送响应消息失败: 消息内容过长 (9057)。请检查模块返回内容。")
+                     pass
                 
                 else:
                     debug_log(f"收到非预期或已处理的echo: {echo}, 事件: {event}") 

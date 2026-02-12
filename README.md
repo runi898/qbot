@@ -66,6 +66,16 @@ PID = "你的PID"
 # 京东联盟 API
 JD_APPKEY = "你的APPKEY"
 JD_UNION_ID = "你的UNION_ID"
+
+# 京东短链转换配置
+JD_DWZ_CONFIG = {
+    # 如果 Sign 服务运行在 Docker 宿主机上，请使用宿主机局域网 IP
+    "sign_url": "http://192.168.8.1:3001/sign",
+    
+    # 京东 Cookie 配置（可选）
+    # 用于短链转换 API 鉴权。如果遇到 "dwz 指令转换失败" 或 API 返回 1007 错误，请填入有效的 pt_key 和 pt_pin。
+    "cookie": ""  # 例如: "pt_key=xxx; pt_pin=xxx;"
+}
 ```
 
 ### modules/rebate/config.json
@@ -99,12 +109,14 @@ JD_UNION_ID = "你的UNION_ID"
 
 ### 京东线报模块
 - 京东线报过滤、去重以后转发指定群
+- 去重方法：通过url前面的文字去重，第二层通过图片id双层去重
 
 ### 返利模块
 - 淘宝链接自动转换
 - 京东链接自动转换
 - 增加item.jd.taobao的转换，先通过dwz url指令把京东长网址转为短网址，在进行返利转链
-- dwz url指令把京东长网址转为短网址 3.cn格式
+- 自动转换 `item.m.jd.com` 开头的长链接为 `3.cn` 短链接，解决返利转链失败问题
+- 支持自定义 Sign 服务器和 Cookie 配置，以应对京东 API 升级带来的 1007 错误
 
 ### 离线通知模块
 - 监控机器人在线状态

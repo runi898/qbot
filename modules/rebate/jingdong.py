@@ -8,7 +8,7 @@ import sys
 import os
 from typing import Optional, Set
 from urllib.parse import quote
-from config import DEBUG_MODE
+from config import DEBUG_MODE, JD_SIGN_URL
 
 # 导入京东短链转换器
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'news_jd'))
@@ -32,7 +32,7 @@ class JingdongConverter:
         self.command_url = "http://japi.jingtuitui.com/api/get_goods_command"
         
         # 初始化短链转换器
-        self.dwz_converter = JDShortUrlConverter(sign_url="http://192.168.8.2:3001/sign")
+        self.dwz_converter = JDShortUrlConverter(sign_url=JD_SIGN_URL)
     
     async def convert(self, material_url: str, processed_titles: Set[str], show_commission: bool = True) -> Optional[str]:
         """
@@ -58,7 +58,7 @@ class JingdongConverter:
                 if DEBUG_MODE:
                     print(f"[京东转换器] 检测到 item.m.jd.com 链接，先转换为短链接")
                 try:
-                    dwz_result = self.dwz_converter.convert(material_url, verbose=False)
+                    dwz_result = self.dwz_converter.convert(material_url, verbose=DEBUG_MODE)
                     if dwz_result['success']:
                         material_url = dwz_result['short_url']
                         if DEBUG_MODE:
@@ -147,6 +147,7 @@ class JingdongConverter:
                         
                         if image_cq:  # 如果图片CQ码存在，则添加
                             return_string += f"{image_cq}"
+                            # pass
                         
                         if DEBUG_MODE:
                             print(f"[京东转换器] 转换成功")

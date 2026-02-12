@@ -26,4 +26,4 @@ typing_extensions==4.12.2
 uvicorn==0.34.0
 websockets==15.0
 yarl==1.18.3
-
+pyarrow>=10.0.1  # Added to suppress pandas warning

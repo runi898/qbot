@@ -12,7 +12,7 @@ import os
 from typing import Optional
 from core.base_module import BaseModule, ModuleContext, ModuleResponse
 import main
-from config import get_bot_qq_list, BOT_PRIORITY, DEBUG_MODE
+from config import get_bot_qq_list, BOT_PRIORITY, DEBUG_MODE, JD_SIGN_URL
 
 # 导入京东短链转换器
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'news_jd'))
@@ -76,7 +76,7 @@ class GroupAdminModule(BaseModule):
         self.dwz_pattern = re.compile(r'^dwz\s+(https?://[^\s]+)', re.IGNORECASE)
         
         # 初始化京东短链转换器
-        self.jd_converter = JDShortUrlConverter(sign_url="http://192.168.8.2:3001/sign")
+        self.jd_converter = JDShortUrlConverter(sign_url=JD_SIGN_URL)
         
         print(f"[{self.name}] 模块已加载 (v{self.version})")
         print(f"[{self.name}] 监听群: {self.watched_groups}")
@@ -211,13 +211,14 @@ class GroupAdminModule(BaseModule):
                 print(f"[{self.name}] 跳过机器人消息: {context.user_id}")
             return False
         
-        # 2. 只处理群消息
-        if context.group_id is None:
+        # 2. 只处理群消息 (如果是 dwz 指令，允许私聊)
+        is_dwz = bool(self.dwz_pattern.search(message))
+        if context.group_id is None and not is_dwz:
             return False
-        
-        # 3. 群组过滤
-        if context.group_id not in self.watched_groups:
-            return False
+            
+        # 3. 群组过滤 (如果是 dwz 指令且私聊，跳过此步)
+        if context.group_id and context.group_id not in self.watched_groups:
+             return False
         
         # 4. 权限检查：只有管理员可以使用
         if context.user_id not in self.admin_qq_list:
@@ -226,6 +227,7 @@ class GroupAdminModule(BaseModule):
             return False
         
         # 5. 机器人优先级检查：只有优先级最高的在线机器人才尝试
+        # 私聊时 context.group_id 为 None，应该由优先级判断函数自行处理
         if not self.should_respond_by_priority(context):
             return False
         
@@ -244,6 +246,18 @@ class GroupAdminModule(BaseModule):
     
         
 
+    async def handle(self, message: str, context: ModuleContext) -> Optional[ModuleResponse]:
+        """处理消息"""
+        msg = message.strip()
+
+        # 针对数据库和定时相关指令，暂时交由主程序处理
+        # 避免通过 import main 导致副作用
+        if msg in ["数据库统计", "清理数据库", "清理全部已撤回", "导出数据库"] or \
+           (msg.startswith("清理") and "天" in msg) or \
+           msg.startswith("定时"):
+            return None
+
+        try:
             # --- 原有撤回/dwz指令 --- (保持原有逻辑)
             
             # 0. 检查 dwz 指令

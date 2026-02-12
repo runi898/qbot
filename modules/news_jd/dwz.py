@@ -8,24 +8,50 @@
 import requests
 import json
 import sys
+import os
 from typing import Dict, Any, Optional
 
+# 尝试从上级目录加载配置
+DEFAULT_SIGN_URL = None
+try:
+    # 将项目根目录添加到 sys.path
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    # 尝试多种路径策略
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..')) # start dir
+    
+    from config import JD_SIGN_URL
+    DEFAULT_SIGN_URL = JD_SIGN_URL
+except ImportError:
+    pass
+
+
+try:
+    from config import JD_COOKIE
+except ImportError:
+    JD_COOKIE = ""
 
 class JDShortUrlConverter:
     """京东短链转换器"""
     
-    def __init__(self, sign_url: str = "http://192.168.8.2:3001/sign"): # 改成自己京东sign，镜像docker.466661.xyz/zhx47/jd_h5st_server:latest
+    def __init__(self, sign_url: str = None):
         """
         初始化转换器
         
         Args:
             sign_url: Sign 服务器完整地址
         """
-        self.sign_url = sign_url
+        self.sign_url = sign_url if sign_url else DEFAULT_SIGN_URL
+        if not self.sign_url:
+             raise ValueError("必须提供 sign_url，或在 config.py 中配置 JD_SIGN_URL")
+             
         self.jd_api_url = "https://api.m.jd.com/client.action"
         self.headers = {
             'User-Agent': 'jdapp;android;13.6.3',
-            'Content-Type': 'application/x-www-form-urlencoded'
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Cookie': JD_COOKIE
         }
     
     def call_sign_api(self, function_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
@@ -120,7 +146,7 @@ class JDShortUrlConverter:
                 return {
                     'success': False,
                     'error': 'Sign 接口返回错误',
-                    'raw_response': sign_result
+                    'raw_response': str(sign_result)[:500]  # 防止过长
                 }
             
             # 步骤 2: 调用京东 API
@@ -151,10 +177,12 @@ class JDShortUrlConverter:
                     'raw_response': jd_result
                 }
             else:
+                if verbose:
+                    print(f"[dwz.py] ❌ 未找到短链接字段。完整响应: {json.dumps(jd_result, ensure_ascii=False)[:500]}...")
                 return {
                     'success': False,
-                    'error': '未找到短链接字段',
-                    'raw_response': jd_result
+                    'error': f'未找到短链接字段。响应码: {code}, 提示: {str(text)[:100]}',
+                    'raw_response': str(jd_result)[:500]
                 }
                 
         except Exception as e:
@@ -196,8 +224,10 @@ def main():
     
     parser = argparse.ArgumentParser(description='京东短链转换工具')
     parser.add_argument('url', nargs='?', help='京东商品链接')
-    parser.add_argument('-s', '--sign-url', default='http://192.168.8.2:3001/sign',
-                       help='Sign 服务器地址 (默认: http://192.168.8.2:3001/sign)')
+    
+    default_help = f'Sign 服务器地址 (默认: {DEFAULT_SIGN_URL})' if DEFAULT_SIGN_URL else 'Sign 服务器地址 (必填)'
+    parser.add_argument('-s', '--sign-url', default=DEFAULT_SIGN_URL, help=default_help)
+    
     parser.add_argument('-q', '--quiet', action='store_true',
                        help='静默模式，只输出短链接')
     parser.add_argument('-f', '--file', help='从文件读取链接列表（每行一个）')

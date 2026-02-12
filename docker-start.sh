@@ -61,8 +61,8 @@ read -p "请输入选项 (1/2): " choice
 case $choice in
     1)
         print_info "使用 Docker Compose 启动..."
-        docker-compose up -d
-        print_info "查看日志: docker-compose logs -f"
+        docker compose up -d
+        print_info "查看日志: docker compose logs -f"
         ;;
     2)
         print_info "构建 Docker 镜像..."
