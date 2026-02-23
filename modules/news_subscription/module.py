@@ -236,10 +236,9 @@ class NewsSubscriptionModule(BaseModule):
                 return False
 
         # 1. 优先处理指令
-        if msg.startswith(("推送", "取消推送", "我的推送", "推送清空", "推送暂停", "推送恢复")):
-            # Debug Log
-            if msg.startswith("推送"):
-                print(f"[{self.name}] 收到推送指令，准备处理: {msg}")
+        if msg.startswith(("订阅", "取消订阅", "我的订阅", "订阅清空", "订阅暂停", "订阅恢复")):
+            if msg.startswith("订阅"):
+                print(f"[{self.name}] 收到订阅指令，准备处理: {msg}")
             return True
             
         # 2. 处理普通消息（用于推送匹配）
@@ -258,61 +257,60 @@ class NewsSubscriptionModule(BaseModule):
         user_id = context.user_id
         
         # === 指令处理 ===
-        # 1. 我的推送
-        if msg == "我的推送":
+        # 1. 我的订阅
+        if msg == "我的订阅":
             keywords = news_db.get_user_subscriptions(user_id)
             if not keywords:
-                return ModuleResponse("当前没有推送任何关键词。", auto_recall=True, recall_delay=10)
+                return ModuleResponse("当前没有订阅任何关键词。", auto_recall=True, recall_delay=10)
             status = " (已暂停)" if user_id in self.manager.user_paused else ""
-            return ModuleResponse(f"当前推送 ({len(keywords)}/{self.max_subs}){status}：\n" + "、".join(keywords), auto_recall=True, recall_delay=30) # 列表看久一点
+            return ModuleResponse(f"当前订阅 ({len(keywords)}/{self.max_subs}){status}：\n" + "、".join(keywords), auto_recall=True, recall_delay=30)
 
-        # 2. 推送清空
-        if msg == "推送清空":
+        # 2. 订阅清空
+        if msg == "订阅清空":
             count = self.manager.clear_subscriptions(user_id)
-            return ModuleResponse(f"已清空 {count} 条推送。", auto_recall=True, recall_delay=10)
+            return ModuleResponse(f"已清空 {count} 条订阅。", auto_recall=True, recall_delay=10)
 
-        # 3. 推送暂停
-        if msg == "推送暂停":
+        # 3. 订阅暂停
+        if msg == "订阅暂停":
             self.manager.set_pause(user_id, True)
-            return ModuleResponse("已暂停推送，发送【推送恢复】可重新接收。", auto_recall=True, recall_delay=10)
+            return ModuleResponse("已暂停订阅，发送【订阅恢复】可重新接收。", auto_recall=True, recall_delay=10)
 
-        # 4. 推送恢复
-        if msg == "推送恢复":
+        # 4. 订阅恢复
+        if msg == "订阅恢复":
             self.manager.set_pause(user_id, False)
-            return ModuleResponse("已恢复推送。", auto_recall=True, recall_delay=10)
+            return ModuleResponse("已恢复订阅。", auto_recall=True, recall_delay=10)
 
-        # 5. 取消推送
-        if msg.startswith("取消推送"):
-            keyword = msg.replace("取消推送", "").strip()
+        # 5. 取消订阅
+        if msg.startswith("取消订阅"):
+            keyword = msg.replace("取消订阅", "").strip()
             if not keyword:
-                return ModuleResponse("格式错误，请使用：取消推送 关键词", auto_recall=True, recall_delay=10)
+                return ModuleResponse("格式错误，请使用：取消订阅 关键词", auto_recall=True, recall_delay=10)
             
             if self.manager.remove_subscription(user_id, keyword):
-                return ModuleResponse(f"已取消推送：{keyword}", auto_recall=True, recall_delay=10)
+                return ModuleResponse(f"已取消订阅：{keyword}", auto_recall=True, recall_delay=10)
             else:
-                return ModuleResponse(f"未找到推送：{keyword}", auto_recall=True, recall_delay=10)
+                return ModuleResponse(f"未找到订阅：{keyword}", auto_recall=True, recall_delay=10)
 
-        # 6. 推送
-        if msg.startswith("推送"):
-            keyword = msg.replace("推送", "").strip()
+        # 6. 订阅 <关键词>
+        if msg.startswith("订阅"):
+            keyword = msg.replace("订阅", "").strip()
             if not keyword:
-                # 显示帮助菜单
                 help_msg = (
-                    "【推送助手】\n"
+                    "【订阅助手】\n"
                     "发送以下指令即可操作：\n"
-                    "1. 推送 <关键词>：关注商品\n"
-                    "   例：推送 抽纸\n"
-                    "   例：推送 0元 (智能避开60元)\n"
-                    "2. 取消推送 <关键词>：取消关注\n"
-                    "3. 我的推送：查看列表\n"
-                    "4. 推送清空：清空所有\n"
-                    "5. 推送暂停/恢复：暂停或恢复通知"
+                    "1. 订阅 <关键词>：关注商品\n"
+                    "   例：订阅 抄纸\n"
+                    "   例：订阅 0元 (智能避开 60元)\n"
+                    "2. 取消订阅 <关键词>：取消关注\n"
+                    "3. 我的订阅：查看列表\n"
+                    "4. 订阅清空：清空所有\n"
+                    "5. 订阅暂停/恢复：暂停或恢复通知"
                 )
-                return ModuleResponse(help_msg, auto_recall=True, recall_delay=30) # 帮助菜单看久一点
+                return ModuleResponse(help_msg, auto_recall=True, recall_delay=30)
             
             current_subs = news_db.get_user_subscriptions(user_id)
             if len(current_subs) >= self.max_subs:
-                return ModuleResponse(f"推送数已达上限 ({self.max_subs})，请先取消部分推送。", auto_recall=True, recall_delay=10)
+                return ModuleResponse(f"订阅数已达上限 ({self.max_subs})，请先取消部分订阅。", auto_recall=True, recall_delay=10)
             
             if self.manager.add_subscription(user_id, keyword):
                 extra_tip = ""
@@ -320,10 +318,9 @@ class NewsSubscriptionModule(BaseModule):
                     extra_tip = "\n(已启用数字智能匹配: 0元不会匹配60元)"
                 elif keyword.startswith("re:"):
                     extra_tip = "\n(已启用正则匹配模式)"
-                    
-                return ModuleResponse(f"已添加推送：{keyword}{extra_tip}", auto_recall=True, recall_delay=10)
+                return ModuleResponse(f"已订阅：{keyword}{extra_tip}", auto_recall=True, recall_delay=10)
             else:
-                return ModuleResponse(f"已存在推送：{keyword}", auto_recall=True, recall_delay=10)
+                return ModuleResponse(f"已存在订阅：{keyword}", auto_recall=True, recall_delay=10)
         
         # === 消息匹配与推送 ===
         # 如果不是指令，检查是否有匹配的订阅
