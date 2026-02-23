@@ -256,23 +256,29 @@ class TaobaoNewsCollector:
                 converted = await self.convert_tkl(tkl)
                 original_token = tkl
 
-        if not converted:
+        if not converted or not original_token:
             return None
+
+        # ── 用原始 token 的 SHA1 作为 item_id ──────────────────────────────
+        # 注意：折淘客 API 每次返回的 tao_id 含 session 追踪码，会因 QQ 不同而不同。
+        # 直接用 API 返回的 tao_id 会导致去重失败（同一商品存两条）。
+        # 用原始口令/URL 的 SHA1 保证同一商品永远是同一个 item_id。
+        stable_item_id = hashlib.sha1(original_token.strip().encode("utf-8")).hexdigest()
 
         # 构建转换后的消息：替换原始链接/口令为新口令或短链
         new_url = converted.get("short_url", "")
         new_tkl = converted.get("tkl", "")
 
-        if new_url and original_token:
+        if new_url:
             converted_message = message.replace(original_token, new_url)
-        elif new_tkl and original_token:
+        elif new_tkl:
             converted_message = message.replace(original_token, new_tkl)
         else:
             converted_message = message
 
         return {
             "platform": "taobao",
-            "item_id": converted.get("item_id"),
+            "item_id": stable_item_id,          # 稳定的 SHA1，不依赖 API 返回值
             "title": converted.get("title"),
             "original_url": original_token,
             "converted_url": new_url or new_tkl,
@@ -295,6 +301,9 @@ class TaobaoNewsModule(BaseModule):
         self._prefix_last_cleanup = 0.0
         self._prefix_dedup_window = 300
         self._url_re = re.compile(r'https?://\S+')
+        # token 级内存去重（在 API 调用之前就判断，防止多 QQ 重复并发）
+        self._token_dedup: Dict[str, float] = {}
+        self._token_dedup_lock = asyncio.Lock()
 
     @property
     def name(self) -> str:
@@ -351,7 +360,29 @@ class TaobaoNewsModule(BaseModule):
         return has_tb
 
     async def handle(self, message: str, context: ModuleContext) -> Optional[ModuleResponse]:
-        # 前缀文案去重
+        # ── 第1层：提取原始 token，做内存去重（最快，API调用前就拦截）──────
+        original_url = self.collector.extract_tb_url(message)
+        original_tkl = None if original_url else self.collector.extract_tkl(message)
+        original_token = original_url or original_tkl
+
+        if original_token:
+            token_key = hashlib.sha1(original_token.strip().encode("utf-8")).hexdigest()
+            now = time.time()
+            async with self._token_dedup_lock:
+                last = self._token_dedup.get(token_key)
+                if last and (now - last) <= self._prefix_dedup_window:
+                    if DEBUG_MODE:
+                        print(f"[{self.name}] token去重命中，跳过: {original_token[:30]}")
+                    return None
+                # 立即占位，防止其他 QQ 同时进入
+                self._token_dedup[token_key] = now
+                # 顺便清理过期 token
+                self._token_dedup = {
+                    k: v for k, v in self._token_dedup.items()
+                    if now - v <= self._prefix_dedup_window
+                }
+
+        # ── 第2层：前缀文案去重（URL场景补充）────────────────────────────────
         if self._is_prefix_duplicate(message):
             print(f"[{self.name}] 前缀文案去重命中，跳过处理")
             return None
@@ -372,17 +403,17 @@ class TaobaoNewsModule(BaseModule):
         if DEBUG_MODE:
             print(f"[{self.name}] ✅ 收集到淘宝线报: {title_display}")
 
-        # 没有 item_id 时用 URL 的 sha1 作为唯一标识
+        # item_id 已在 process_message 中设为原始 token 的 SHA1，无需再次兜底
         item_id = result.get("item_id")
         if not item_id:
-            item_id = hashlib.sha1(result.get("original_url", "").encode("utf-8")).hexdigest()
+            item_id = hashlib.sha1((result.get("original_url") or "").encode("utf-8")).hexdigest()
             result["item_id"] = item_id
 
-        # 写入数据库（去重）
+        # ── 第3层：数据库 UNIQUE 约束去重 ────────────────────────────────────
         news_id = await news_db.insert_news(result)
         if news_id is None:
             if DEBUG_MODE:
-                print(f"[{self.name}] 线报重复或保存失败，跳过")
+                print(f"[{self.name}] 数据库去重命中，跳过")
             return None
 
         if DEBUG_MODE:
@@ -532,13 +563,15 @@ class TaobaoNewsModule(BaseModule):
                 self._prefix_dedup.pop(k, None)
 
     def _extract_prefix_before_url(self, message: str) -> str:
-        """提取URL前的文案作为去重key"""
+        """提取URL前的文案作为去重key；无URL时用整条文本（用于TKL场景）"""
         # 去掉 CQ 码
         msg = re.sub(r'\[CQ:[^\]]+\]', '', message)
         m = self._url_re.search(msg)
-        if not m:
-            return ""
-        prefix = msg[:m.start()]
+        if m:
+            prefix = msg[:m.start()]
+        else:
+            # 没有 URL（典型的淘口令场景），用整条文本标准化后去重
+            prefix = msg
         return self._normalize_prefix(prefix)
 
     def _normalize_prefix(self, text: str) -> str:
