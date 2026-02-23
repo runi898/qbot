@@ -425,39 +425,35 @@ class GroupAdminModule(BaseModule):
     
     async def recall_recent_messages(self, context: ModuleContext, count: int) -> str:
         """
-        撤回最近的N条消息
+        撤回最近的N条机器人消息（不包括其他用户的消息）
         
         Args:
             context: 消息上下文
-            count: 要撤回的消息数量
+            count: 要撤回的机器人消息数量
             
         Returns:
             操作结果
         """
         try:
-            # 通过OneBot API获取群历史消息
-            # echo格式: get_recent_history_{group_id}_{count}
-            # main.py 通过解析此 echo 来限量撤回
             history_payload = {
                 "action": "get_group_msg_history",
                 "params": {
                     "group_id": context.group_id,
-                    "count": count + 10  # 多获取一些，以防有些消息无法撤回
+                    "count": count + 20  # 多取20条，确保能凑够N条机器人消息
                 },
                 "echo": f"get_recent_history_{context.group_id}_{count}"
             }
             
             await context.ws.send_text(json.dumps(history_payload))
             if DEBUG_MODE:
-                print(f"[{self.name}] 已请求获取群 {context.group_id} 的最近 {count} 条历史消息")
+                print(f"[{self.name}] 已请求获取群 {context.group_id} 的历史消息，撤回最近 {count} 条机器人消息")
             
-            # 注意：这里只是发送请求，实际撤回需要在收到响应后进行
-            # 由于是异步操作，这里返回提示信息
-            return f"✅ 正在获取并撤回最近 {count} 条消息..."
+            return f"✅ 正在撤回机器人最近 {count} 条消息（含本指令消息）..."
             
         except Exception as e:
             print(f"[{self.name}] ❌ 获取历史消息失败: {e}")
             return f"❌ 获取历史消息失败: {str(e)}"
+
     
     async def recall_messages_by_user(self, context: ModuleContext, target_qq: int, count: int) -> str:
         """

@@ -1593,22 +1593,34 @@ async def custom_ws_adapter(websocket: WebSocket):
                             recall_limit = int(parts[-1])  # 最后一段是 count
                         except (ValueError, IndexError):
                             recall_limit = 20  # 解析失败时默认20
-                        
+
                         if messages:
                             if DEBUG_MODE:
-                                print(f"[群管理模块] 收到 {len(messages)} 条历史消息，限量撤回最近 {recall_limit} 条...")
-                            
+                                print(f"[群管理模块] 收到 {len(messages)} 条历史消息，限量撤回最近 {recall_limit} 条机器人消息...")
+
+                            # 获取机器人QQ列表（只撤回机器人自己发的消息）
+                            bot_qq_list = get_bot_qq_list()
+
                             recalled_count = 0
-                            # 消息列表是从旧到新排列的，取最后 recall_limit 条（最新的）
+                            # 消息列表从旧到新，取最后 recall_limit 条（最新的）
                             target_messages = messages[-recall_limit:] if len(messages) > recall_limit else messages
-                            
+
                             for msg in target_messages:
                                 msg_id = msg.get("message_id")
-                                
-                                # 跳过已删除的消息
+                                msg_user_id = msg.get("user_id")
+
+                                # 跳过已删除消息
                                 if msg.get("raw_message") in ["[已删除]", "&#91;已删除&#93;"]:
                                     continue
-                                
+
+                                # ── 只撤回机器人发的消息 ────────────────────────
+                                # 机器人没有权限撤回其他普通用户的消息（会静默失败）
+                                # 只有 撤回全部 / @某人撤回 才应该尝试非机器人消息
+                                if msg_user_id not in bot_qq_list:
+                                    if DEBUG_MODE:
+                                        print(f"[群管理模块] 跳过非机器人消息 (user={msg_user_id}): {msg_id}")
+                                    continue
+
                                 try:
                                     recall_payload = {
                                         "action": "delete_msg",
@@ -1621,12 +1633,13 @@ async def custom_ws_adapter(websocket: WebSocket):
                                     await asyncio.sleep(0.1)
                                 except Exception as e:
                                     print(f"[群管理模块] ❌ 撤回消息 {msg_id} 失败: {e}")
-                            
-                            print(f"[群管理模块] ✅ 限量撤回：已发送 {recalled_count} 条撤回请求（目标 {recall_limit} 条）")
+
+                            print(f"[群管理模块] ✅ 限量撤回：已发送 {recalled_count} 条撤回请求（目标 {recall_limit} 条机器人消息）")
                         else:
                             print(f"[群管理模块] ⚠️ 未找到可撤回的消息")
                     else:
                         print(f"[群管理模块] ❌ 获取历史消息失败: {event.get('message', '未知错误')}")
+
 
                 # 处理特定用户历史消息响应（用于@撤回）
                 elif echo and echo.startswith("get_user_history_"):
