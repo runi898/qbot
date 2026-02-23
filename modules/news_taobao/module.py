@@ -218,10 +218,11 @@ class TaobaoNewsCollector:
         new_url = converted.get("short_url", "")
         new_tkl = converted.get("tkl", "")
 
-        if new_url:
-            converted_message = message.replace(original_token, new_url)
-        elif new_tkl:
+        # 优先使用 tkl（淘口令），没有 tkl 才降级用 short_url
+        if new_tkl:
             converted_message = message.replace(original_token, new_tkl)
+        elif new_url:
+            converted_message = message.replace(original_token, new_url)
         else:
             converted_message = message
 
