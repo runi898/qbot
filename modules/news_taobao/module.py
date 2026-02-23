@@ -80,10 +80,22 @@ class TaobaoNewsCollector:
                 return full_match
         return None
 
-    async def convert_tb_url(self, url: str) -> Optional[Dict]:
-        """通过折淘客API转换淘宝链接"""
+    async def convert(self, token: str) -> Optional[Dict]:
+        """
+        通过折淘客 API 转换淘宝链接或口令。
+
+        根据 API 文档，open_gaoyongzhuanlian_tkl.ashx 的 tkl 参数同时接受：
+          - 淡口令：复制这条信息，･xxx･，打开[手机淘宝]即可。
+          - 二合一链接：https://uland.taobao.com/coupon/edetail?e=...
+          - 长链接：https://s.click.taobao.com/t?e=...
+          - 短链接：https://s.click.taobao.com/xxx / https://s.tb.cn/h.xxx
+          - 所以无需区分 URL 还是口令，一个接口全部处理。
+
+        注意：aiohttp params={} 会自动 URL 编码，不要手动 quote()。
+        """
         if DEBUG_MODE:
-            print(f"[{self.name}] 开始转换淘宝链接: {url}")
+            input_type = "URL" if token.strip().startswith("http") else "口令"
+            print(f"[{self.name}] 转换{input_type}: {token[:60]}")
         try:
             app_key = TAOBAO_CONFIG.get("app_key") or self.api_config.get("app_key")
             sid = TAOBAO_CONFIG.get("sid") or self.api_config.get("sid")
@@ -94,12 +106,12 @@ class TaobaoNewsCollector:
                 print(f"[{self.name}] 错误：淘宝API配置不完整(app_key/sid/pid)")
                 return None
 
-            api_url = "https://api.zhetaoke.com:10001/api/open_gaoyongzhuanlian.ashx"
+            api_url = "https://api.zhetaoke.com:10001/api/open_gaoyongzhuanlian_tkl.ashx"
             params = {
                 "appkey": app_key,
-                "sid": sid,
-                "pid": pid,
-                "url": url,
+                "sid":    sid,
+                "pid":    pid,
+                "tkl":    token,   # aiohttp 自动 URL 编码，无需 quote()
                 "signurl": 5,
             }
             if relation_id:
@@ -107,16 +119,10 @@ class TaobaoNewsCollector:
 
             if DEBUG_MODE:
                 from urllib.parse import urlencode
-                full_url = f"{api_url}?{urlencode(params)}"
-                print(f"[{self.name}] API完整请求URL: {full_url}")
+                print(f"[{self.name}] API完整请求URL: {api_url}?{urlencode(params)}")
 
             async with aiohttp.ClientSession() as session:
-                if DEBUG_MODE:
-                    print(f"[{self.name}] 发送API请求到: {api_url}")
                 async with session.get(api_url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    if DEBUG_MODE:
-                        print(f"[{self.name}] API响应状态码: {response.status}")
-
                     if response.status != 200:
                         print(f"[{self.name}] API请求失败，状态码: {response.status}")
                         return None
@@ -138,23 +144,19 @@ class TaobaoNewsCollector:
                             or content.get("pic_url")
                             or content.get("imageUrl")
                         )
-                        tkl = content.get("tkl") or content.get("tao_token")
+                        new_tkl = content.get("tkl") or content.get("tao_token")
                         return {
-                            "item_id": content.get("tao_id") or content.get("item_id"),
-                            "title": (
-                                content.get("tao_title")
-                                or content.get("title")
-                                or "淘宝商品"
-                            ),
-                            "short_url": short_url,
-                            "long_url": url,
-                            "price": content.get("quanhou_jiage") or content.get("price"),
+                            "item_id":    content.get("tao_id") or content.get("item_id"),
+                            "title":      content.get("tao_title") or content.get("title") or "淘宝商品",
+                            "short_url":  short_url,
+                            "long_url":   short_url,
+                            "price":      content.get("quanhou_jiage") or content.get("price"),
                             "commission": content.get("tkfee3") or content.get("commission"),
-                            "pict_url": pict_url,
-                            "tkl": tkl,
+                            "pict_url":   pict_url,
+                            "tkl":        new_tkl or token,
                             # 稳定去重字段（不随 session 变化）
-                            "seller_id": content.get("seller_id", ""),
-                            "coupon_id": content.get("coupon_id", ""),
+                            "seller_id":  content.get("seller_id", ""),
+                            "coupon_id":  content.get("coupon_id", ""),
                         }
 
                     if DEBUG_MODE:
@@ -169,102 +171,17 @@ class TaobaoNewsCollector:
 
         return None
 
-    async def convert_tkl(self, tkl: str) -> Optional[Dict]:
-        """通过折淘客API转换淘口令"""
-        if DEBUG_MODE:
-            print(f"[{self.name}] 开始转换淘口令: {tkl}")
-        try:
-            app_key = TAOBAO_CONFIG.get("app_key") or self.api_config.get("app_key")
-            sid = TAOBAO_CONFIG.get("sid") or self.api_config.get("sid")
-            pid = TAOBAO_CONFIG.get("pid") or self.api_config.get("pid")
-            relation_id = TAOBAO_CONFIG.get("relation_id") or self.api_config.get("relation_id", "")
-
-            if not app_key or not sid or not pid:
-                print(f"[{self.name}] 错误：淘宝API配置不完整(app_key/sid/pid)")
-                return None
-
-            api_url = "https://api.zhetaoke.com:10001/api/open_gaoyongzhuanlian_tkl.ashx"
-            params = {
-                "appkey": app_key,
-                "sid": sid,
-                "pid": pid,
-                "tkl": quote(tkl),
-                "signurl": 5,
-            }
-            if relation_id:
-                params["relation_id"] = relation_id
-
-            if DEBUG_MODE:
-                from urllib.parse import urlencode
-                full_url = f"{api_url}?{urlencode(params)}"
-                print(f"[{self.name}] 淘口令API完整请求URL: {full_url}")
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(api_url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                    if response.status != 200:
-                        print(f"[{self.name}] 淘口令API请求失败，状态码: {response.status}")
-                        return None
-
-                    resp_text = await response.text()
-                    if DEBUG_MODE:
-                        print(f"[{self.name}] 淘口令API原始响应: {resp_text[:500]}")
-                    data = json.loads(resp_text)
-
-                    if data.get("status") == 200 and data.get("content"):
-                        content = data["content"][0]
-                        short_url = (
-                            content.get("shorturl2")
-                            or content.get("shorturl")
-                            or content.get("coupon_click_url")
-                        )
-                        pict_url = content.get("pict_url") or content.get("pic_url")
-                        new_tkl = content.get("tkl") or content.get("tao_token")
-                        return {
-                            "item_id": content.get("tao_id") or content.get("item_id"),
-                            "title": (
-                                content.get("tao_title")
-                                or content.get("title")
-                                or "淘宝商品"
-                            ),
-                            "short_url": short_url,
-                            "long_url": short_url,
-                            "price": content.get("quanhou_jiage") or content.get("price"),
-                            "commission": content.get("tkfee3") or content.get("commission"),
-                            "pict_url": pict_url,
-                            "tkl": new_tkl or tkl,
-                            # 稳定去重字段
-                            "seller_id": content.get("seller_id", ""),
-                            "coupon_id": content.get("coupon_id", ""),
-                        }
-
-                    if DEBUG_MODE:
-                        print(f"[{self.name}] 淘口令API返回状态异常: {data}")
-
-        except asyncio.TimeoutError:
-            print(f"[{self.name}] ❌ 淘口令API请求超时(>10s)")
-        except Exception as e:
-            print(f"[{self.name}] ❌ 淘口令API请求失败: {e}")
-            import traceback
-            traceback.print_exc()
-
-        return None
-
     async def process_message(self, message: str, context: Dict) -> Optional[Dict]:
         """处理消息，提取并转换淘宝链接或口令"""
-        converted = None
-        original_token = None
+        # 优先尝试提取 URL，其次口令
+        original_token = self.extract_tb_url(message)
+        if not original_token:
+            original_token = self.extract_tkl(message)
+        if not original_token:
+            return None
 
-        # 优先尝试链接转换
-        original_url = self.extract_tb_url(message)
-        if original_url:
-            converted = await self.convert_tb_url(original_url)
-            original_token = original_url
-        else:
-            # 再尝试口令转换
-            tkl = self.extract_tkl(message)
-            if tkl:
-                converted = await self.convert_tkl(tkl)
-                original_token = tkl
+        # 统一调用同一个接口
+        converted = await self.convert(original_token)
 
         if not converted or not original_token:
             return None
@@ -393,9 +310,10 @@ class TaobaoNewsModule(BaseModule):
 
     async def handle(self, message: str, context: ModuleContext) -> Optional[ModuleResponse]:
         # ── 第1层：提取原始 token，做内存去重（最快，API调用前就拦截）──────
-        original_url = self.collector.extract_tb_url(message)
-        original_tkl = None if original_url else self.collector.extract_tkl(message)
-        original_token = original_url or original_tkl
+        original_token = (
+            self.collector.extract_tb_url(message)
+            or self.collector.extract_tkl(message)
+        )
 
         if original_token:
             token_key = hashlib.sha1(original_token.strip().encode("utf-8")).hexdigest()
