@@ -137,59 +137,64 @@ class OfflineNotifierModule(BaseModule):
     
     async def _check_status_loop(self):
         """后台循环检查机器人状态"""
-        # 等待一小段时间,确保系统初始化完成
-        await asyncio.sleep(5)
-        
-        # 初始化状态
+        # ── 等待所有 QQ 完成初始连接 ───────────────────────────────────────
+        # 策略：等待 init_wait 秒后做第一次快照（不发通知），
+        #       之后每隔 check_interval 秒才正式检测上线/离线变化。
+        # 这样即使多个 QQ 连接建立有先后，也不会漏掉任何一个。
+        init_wait = max(self.check_interval, 45)  # 至少等 45 秒
+        print(f"[{self.name}] 等待 {init_wait} 秒，让所有机器人完成初始连接...")
+        await asyncio.sleep(init_wait)
+
+        # 初始化快照（此时所有 QQ 应该都已注册到 bot_manager）
         self.last_online_bots = set(bot_manager.get_online_bots())
-        print(f"[{self.name}] 初始在线机器人: {self.last_online_bots}")
-        
-        # 发送启动通知(可选)
-        if self.last_online_bots:
-            for bot_qq in self.last_online_bots:
-                # 稍微延迟一下避免启动时消息拥堵
-                await asyncio.sleep(1) 
-                if self.notify_online:
-                     # 此时我们可以复用 'online' 类型，或者新增一个 'startup' 类型
-                     # 这里为了简单，我们发送一个"监测已启动"的通知
-                     await self._send_notification('online', bot_qq) 
-        
+        print(f"[{self.name}] 基线快照完成，当前在线机器人: {sorted(self.last_online_bots)}")
+
+        # 发送启动通知（已上线的 QQ）
+        if self.notify_online:
+            for bot_qq in sorted(self.last_online_bots):
+                await asyncio.sleep(0.5)
+                await self._send_notification('online', bot_qq)
+
+        # ── 主循环 ─────────────────────────────────────────────────────────
         while True:
             try:
                 await asyncio.sleep(self.check_interval)
-                
+
                 # 获取当前在线机器人
                 current_online_bots = set(bot_manager.get_online_bots())
-                
-                # 如果 monitored_bots 为空，则监测所有在线机器人
+
+                if DEBUG_MODE:
+                    print(f"[{self.name}] 状态轮询 | 当前在线: {sorted(current_online_bots)} | 上次快照: {sorted(self.last_online_bots)}")
+
+                # 如果 monitored_bots 为空，则监测所有
                 if not self.monitored_bots:
                     monitored_current = current_online_bots
                     monitored_last = self.last_online_bots
                 else:
-                    # 只检查监测列表中的机器人
-                    monitored_current = {bot for bot in current_online_bots if bot in self.monitored_bots}
-                    monitored_last = {bot for bot in self.last_online_bots if bot in self.monitored_bots}
-                
-                # 检测离线的机器人 (已改为通过 WebSocket 断开事件触发)
-                # offline_bots = monitored_last - monitored_current
-                # for bot_qq in offline_bots:
-                #     print(f"[{self.name}] 检测到机器人 {bot_qq} 离线")
-                #     if self.notify_offline:
-                #         await self._send_notification('offline', bot_qq)
-                
-                # 检测上线的机器人
+                    monitored_current = {b for b in current_online_bots if b in self.monitored_bots}
+                    monitored_last = {b for b in self.last_online_bots if b in self.monitored_bots}
+
+                # 检测离线（快照有但当前没有 → 离线）
+                offline_bots = monitored_last - monitored_current
+                for bot_qq in offline_bots:
+                    print(f"[{self.name}] ⚠️ 检测到机器人 {bot_qq} 离线")
+                    if self.notify_offline:
+                        await self._send_notification('offline', bot_qq)
+
+                # 检测上线（当前有但快照没有 → 新上线）
                 online_bots = monitored_current - monitored_last
                 for bot_qq in online_bots:
-                    print(f"[{self.name}] 检测到机器人 {bot_qq} 上线")
+                    print(f"[{self.name}] ✅ 检测到机器人 {bot_qq} 上线")
                     if self.notify_online:
                         await self._send_notification('online', bot_qq)
-                
-                # 更新状态缓存
+
+                # 更新快照
                 self.last_online_bots = current_online_bots.copy()
-                
-                if DEBUG_MODE:
-                    print(f"[{self.name}] 状态检查完成,当前在线: {monitored_current}")
-                
+
+                if not DEBUG_MODE:
+                    # 非调试模式也定期打印，便于确认所有QQ都在监测中
+                    print(f"[{self.name}] 当前在线机器人({len(current_online_bots)}个): {sorted(current_online_bots)}")
+
             except asyncio.CancelledError:
                 print(f"[{self.name}] 监测任务已停止")
                 break
@@ -198,6 +203,7 @@ class OfflineNotifierModule(BaseModule):
                 if DEBUG_MODE:
                     import traceback
                     traceback.print_exc()
+
     
     async def _send_notification(self, event_type: str, bot_qq: int):
         """
