@@ -1370,6 +1370,16 @@ async def custom_ws_adapter(websocket: WebSocket):
                 debug_log("消息解析失败: 非JSON格式")
                 continue
 
+            # --- 通用在线状态保活 ---
+            # 只要事件包含 self_id 且该 bot 不在在线列表中，就自动注册
+            # 防止 lifecycle 事件丢失或心跳不及时导致 bot 显示为离线
+            evt_self_id = event.get("self_id")
+            if evt_self_id and evt_self_id not in bot_manager.get_online_bots():
+                connected_qq = evt_self_id
+                bot_manager.add_bot(evt_self_id, websocket)
+                print(f"[系统] ✅ 通过消息事件自动注册在线: QQ {evt_self_id}")
+                print(f"[系统] 当前在线机器人: {sorted(bot_manager.get_online_bots())}")
+
             # --- 主要事件分发器 ---
 
             # Notice 事件 (例如消息撤回通知)
