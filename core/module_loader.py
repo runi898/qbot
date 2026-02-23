@@ -155,91 +155,155 @@ class ModuleLoader:
             import traceback
             traceback.print_exc()
     
+    # 独占优先级阈值：小于等于此值的模块（指令/群管理类）在有命中时阻断后续模块
+    EXCLUSIVE_PRIORITY_THRESHOLD = 11
+
     async def process_message(self, message: str, context: ModuleContext) -> Optional[ModuleResponse]:
         """
-        处理消息，找到合适的模块并执行
-        
-        Args:
-            message: 清理后的消息内容
-            context: 消息上下文
-            
-        Returns:
-            ModuleResponse: 模块响应，如果没有模块处理则返回 None
+        处理消息 —— 两阶段全并发调度
+
+        阶段1: 对所有已启用模块并发执行 can_handle 检查（零等待）
+        阶段2: 根据命中结果分批执行
+            - 独占模块（priority <= EXCLUSIVE_PRIORITY_THRESHOLD，如指令/群管理）：
+              按优先级从高到低串行执行，命中即返回，阻断其余模块
+            - 普通模块（线报/返利/订阅等）：全部并发 handle，互不等待
+
+        优点：线报收集、返利转链、订阅通知等高延迟 API 调用不再相互阻塞。
         """
-        # 打印接收到的消息（用于调试）
         try:
             from config import VERBOSE_LOGGING
             if VERBOSE_LOGGING.get("enabled", False) and VERBOSE_LOGGING.get("message_received", False):
                 print(f"[MESSAGE_RECEIVED] 群{context.group_id} | 用户{context.user_id}: {message[:50]}...")
-        except:
+        except Exception:
             pass
-        
-        #Group modules by priority
-        from itertools import groupby
-        
-        # Ensure modules are sorted by priority (ascending: smaller number = higher priority)
-        sorted_modules = sorted([m for m in self.modules if m.enabled], key=lambda m: m.priority)
-        
-        for priority, modules_in_group in groupby(sorted_modules, key=lambda m: m.priority):
-            modules_list = list(modules_in_group)
-            
-            # Create tasks for all modules in this priority group
-            tasks = []
-            for module in modules_list:
-                tasks.append(self._try_handle_module(module, message, context))
-            
-            # Execute in parallel
-            if tasks:
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                # Check results for any successful handling
-                # If multiple modules handle it, we return the first valid response (or merge them if needed)
-                # For now, we return the first non-None response to maintain behavior
-                for i, result in enumerate(results):
-                    if isinstance(result, Exception):
-                        print(f"[ModuleLoader] 模块执行异常: {result}")
-                        import traceback
-                        traceback.print_exc()
-                        continue
-                        
-                    if result:
-                        return result
-        
+
+        enabled_modules = sorted(
+            [m for m in self.modules if m.enabled],
+            key=lambda m: m.priority,
+        )
+
+        if not enabled_modules:
+            return None
+
+        # ── 阶段1：并发 can_handle ──────────────────────────────────────────
+        can_handle_tasks = [m.can_handle(message, context) for m in enabled_modules]
+        can_handle_results = await asyncio.gather(*can_handle_tasks, return_exceptions=True)
+
+        # 筛选出命中的模块
+        exclusive_hits = []   # 独占模块（priority <= threshold）
+        concurrent_hits = []  # 普通并发模块
+
+        for module, result in zip(enabled_modules, can_handle_results):
+            if isinstance(result, Exception):
+                print(f"[ModuleLoader] ⚠ can_handle 异常 [{module.name}]: {result}")
+                continue
+            if result:
+                if module.priority <= self.EXCLUSIVE_PRIORITY_THRESHOLD:
+                    exclusive_hits.append(module)
+                else:
+                    concurrent_hits.append(module)
+
+        # ── 阶段2a：独占模块 —— 按优先级串行，命中即返回 ──────────────────
+        for module in exclusive_hits:  # 已按优先级排序
+            try:
+                try:
+                    from config import VERBOSE_LOGGING
+                    if VERBOSE_LOGGING.get("enabled", False) and VERBOSE_LOGGING.get("module_handling", False):
+                        print(f"[MODULE_HANDLING][独占] 模块 '{module.name}' 正在处理消息")
+                except Exception:
+                    pass
+
+                await self.event_bus.emit(
+                    "before_handle", {"module": module.name, "message": message}, source=module.name
+                )
+                response = await module.handle(message, context)
+                if response:
+                    await self.event_bus.emit(
+                        "after_handle", {"module": module.name, "response": response.content}, source=module.name
+                    )
+                    return response
+            except Exception as e:
+                print(f"[ModuleLoader] ❌ 独占模块 [{module.name}] handle 异常: {e}")
+                import traceback
+                traceback.print_exc()
+
+        # ── 阶段2b：普通模块 —— 全部并发 handle ────────────────────────────
+        if concurrent_hits:
+            try:
+                from config import VERBOSE_LOGGING
+                if VERBOSE_LOGGING.get("enabled", False) and VERBOSE_LOGGING.get("module_handling", False):
+                    names = [m.name for m in concurrent_hits]
+                    print(f"[MODULE_HANDLING][并发] 并发执行模块: {names}")
+            except Exception:
+                pass
+
+            handle_tasks = [self._try_handle_module_direct(m, message, context) for m in concurrent_hits]
+            handle_results = await asyncio.gather(*handle_tasks, return_exceptions=True)
+
+            # 返回优先级最高的非 None 响应
+            paired = [
+                (m, r)
+                for m, r in zip(concurrent_hits, handle_results)
+                if not isinstance(r, Exception) and r is not None
+            ]
+            if paired:
+                # 取优先级最高（priority 数字最小）的响应返回
+                best = min(paired, key=lambda x: x[0].priority)
+                return best[1]
+
         return None
 
     async def _try_handle_module(self, module, message, context):
-        """Helper to safely execute can_handle and handle"""
+        """Helper to safely execute can_handle and handle（保留供外部兼容调用）"""
         try:
             if await module.can_handle(message, context):
-                # 打印模块处理日志
                 try:
                     from config import VERBOSE_LOGGING
                     if VERBOSE_LOGGING.get("enabled", False) and VERBOSE_LOGGING.get("module_handling", False):
                         print(f"[MODULE_HANDLING] 模块 '{module.name}' 正在处理消息")
-                except:
+                except Exception:
                     pass
-                
-                # 发布消息处理前事件
-                await self.event_bus.emit('before_handle', {
-                    'module': module.name,
-                    'message': message
-                }, source=module.name)
-                
+
+                await self.event_bus.emit(
+                    'before_handle', {'module': module.name, 'message': message}, source=module.name
+                )
                 response = await module.handle(message, context)
-                
-                # 发布消息处理后事件
                 if response:
-                    await self.event_bus.emit('after_handle', {
-                        'module': module.name,
-                        'response': response.content
-                    }, source=module.name)
-                
+                    await self.event_bus.emit(
+                        'after_handle', {'module': module.name, 'response': response.content}, source=module.name
+                    )
                 return response
         except Exception as e:
             print(f"[ModuleLoader] 模块 {module.name} 执行出错: {e}")
             import traceback
             traceback.print_exc()
         return None
+
+    async def _try_handle_module_direct(self, module, message, context):
+        """直接执行 handle（已在阶段1通过 can_handle，无需再次检查）"""
+        try:
+            try:
+                from config import VERBOSE_LOGGING
+                if VERBOSE_LOGGING.get("enabled", False) and VERBOSE_LOGGING.get("module_handling", False):
+                    print(f"[MODULE_HANDLING][并发] 模块 '{module.name}' 正在处理消息")
+            except Exception:
+                pass
+
+            await self.event_bus.emit(
+                'before_handle', {'module': module.name, 'message': message}, source=module.name
+            )
+            response = await module.handle(message, context)
+            if response:
+                await self.event_bus.emit(
+                    'after_handle', {'module': module.name, 'response': response.content}, source=module.name
+                )
+            return response
+        except Exception as e:
+            print(f"[ModuleLoader] ❌ 并发模块 [{module.name}] handle 异常: {e}")
+            import traceback
+            traceback.print_exc()
+        return None
+
     
     def get_module(self, name: str) -> Optional[BaseModule]:
         """根据名称获取模块"""
