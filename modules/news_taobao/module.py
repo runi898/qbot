@@ -152,6 +152,9 @@ class TaobaoNewsCollector:
                             "commission": content.get("tkfee3") or content.get("commission"),
                             "pict_url": pict_url,
                             "tkl": tkl,
+                            # 稳定去重字段（不随 session 变化）
+                            "seller_id": content.get("seller_id", ""),
+                            "coupon_id": content.get("coupon_id", ""),
                         }
 
                     if DEBUG_MODE:
@@ -229,6 +232,9 @@ class TaobaoNewsCollector:
                             "commission": content.get("tkfee3") or content.get("commission"),
                             "pict_url": pict_url,
                             "tkl": new_tkl or tkl,
+                            # 稳定去重字段
+                            "seller_id": content.get("seller_id", ""),
+                            "coupon_id": content.get("coupon_id", ""),
                         }
 
                     if DEBUG_MODE:
@@ -263,11 +269,33 @@ class TaobaoNewsCollector:
         if not converted or not original_token:
             return None
 
-        # ── 用原始 token 的 SHA1 作为 item_id ──────────────────────────────
-        # 注意：折淘客 API 每次返回的 tao_id 含 session 追踪码，会因 QQ 不同而不同。
-        # 直接用 API 返回的 tao_id 会导致去重失败（同一商品存两条）。
-        # 用原始口令/URL 的 SHA1 保证同一商品永远是同一个 item_id。
-        stable_item_id = hashlib.sha1(original_token.strip().encode("utf-8")).hexdigest()
+        # ── 稳定去重 key （梯度降级）────────────────────────────────────
+        # 优先级 1： seller_id + coupon_id
+        #   - coupon_id 标识这期活动/券，同商品新期活动券 coupon_id 会变化（应重新推送）
+        #   - seller_id 防止不同店铺巧合 coupon_id冲突
+        # 优先级 2： pict_url
+        #   - pict_url 主图 CDN 地址，和商品全局绑定，不随 session 变化
+        # 优先级 3： SHA1(原始 token)
+        #   - 训练方案，防止同一消息被两个 QQ 并发处理
+        seller_id = converted.get("seller_id", "")
+        coupon_id = converted.get("coupon_id", "")
+        pict_url_val = converted.get("pict_url", "")
+
+        if seller_id and coupon_id:
+            raw_key = f"tb:seller={seller_id}:coupon={coupon_id}"
+            stable_item_id = hashlib.sha1(raw_key.encode("utf-8")).hexdigest()
+            if DEBUG_MODE:
+                print(f"[淘宝线报收集] 去重策略: seller_id+coupon_id → {stable_item_id[:12]}... (seller={seller_id}, coupon={coupon_id})")
+        elif seller_id and pict_url_val:
+            raw_key = f"tb:seller={seller_id}:pict={pict_url_val}"
+            stable_item_id = hashlib.sha1(raw_key.encode("utf-8")).hexdigest()
+            if DEBUG_MODE:
+                print(f"[淘宝线报收集] 去重策略: seller_id+pict_url → {stable_item_id[:12]}...")
+        else:
+            # 最后降级：原始 token SHA1
+            stable_item_id = hashlib.sha1(original_token.strip().encode("utf-8")).hexdigest()
+            if DEBUG_MODE:
+                print(f"[淘宝线报收集] 去重策略: 原始 token SHA1 → {stable_item_id[:12]}...")
 
         # 构建转换后的消息：替换原始链接/口令为新口令或短链
         new_url = converted.get("short_url", "")
