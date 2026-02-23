@@ -1581,6 +1581,53 @@ async def custom_ws_adapter(websocket: WebSocket):
                         elif retcode == 100:
                             print(f"[群管理模块] {ERROR} 撤回失败: 参数错误 (100)")
                 
+                # 处理"撤回 N条"的历史消息响应（限量撤回）
+                # echo格式: get_recent_history_{group_id}_{count}
+                elif echo and echo.startswith("get_recent_history_"):
+                    if event.get("status") == "ok" and "data" in event:
+                        messages = event["data"].get("messages", [])
+                        # 解析 echo 获取 count
+                        # parts: ['get', 'recent', 'history', group_id, count]
+                        parts = echo.split("_")
+                        try:
+                            recall_limit = int(parts[-1])  # 最后一段是 count
+                        except (ValueError, IndexError):
+                            recall_limit = 20  # 解析失败时默认20
+                        
+                        if messages:
+                            if DEBUG_MODE:
+                                print(f"[群管理模块] 收到 {len(messages)} 条历史消息，限量撤回最近 {recall_limit} 条...")
+                            
+                            recalled_count = 0
+                            # 消息列表是从旧到新排列的，取最后 recall_limit 条（最新的）
+                            target_messages = messages[-recall_limit:] if len(messages) > recall_limit else messages
+                            
+                            for msg in target_messages:
+                                msg_id = msg.get("message_id")
+                                
+                                # 跳过已删除的消息
+                                if msg.get("raw_message") in ["[已删除]", "&#91;已删除&#93;"]:
+                                    continue
+                                
+                                try:
+                                    recall_payload = {
+                                        "action": "delete_msg",
+                                        "params": {"message_id": msg_id},
+                                        "echo": f"batch_recall_{msg_id}"
+                                    }
+                                    await websocket.send_text(json.dumps(recall_payload))
+                                    recalled_count += 1
+                                    debug_log(f"已发送撤回请求: message_id={msg_id}")
+                                    await asyncio.sleep(0.1)
+                                except Exception as e:
+                                    print(f"[群管理模块] ❌ 撤回消息 {msg_id} 失败: {e}")
+                            
+                            print(f"[群管理模块] ✅ 限量撤回：已发送 {recalled_count} 条撤回请求（目标 {recall_limit} 条）")
+                        else:
+                            print(f"[群管理模块] ⚠️ 未找到可撤回的消息")
+                    else:
+                        print(f"[群管理模块] ❌ 获取历史消息失败: {event.get('message', '未知错误')}")
+
                 # 处理特定用户历史消息响应（用于@撤回）
                 elif echo and echo.startswith("get_user_history_"):
                     if event.get("status") == "ok" and "data" in event:
@@ -1630,6 +1677,105 @@ async def custom_ws_adapter(websocket: WebSocket):
                             print(f"[群管理模块] ❌ Echo格式错误: {echo}")
                     else:
                         print(f"[群管理模块] ❌ 获取历史消息失败: {event.get('message', '未知错误')}")
+
+
+                # 处理全部撤回响应 (包含自动循环逻辑)
+                elif echo and (echo.startswith("get_all_history_") or echo.startswith("loop_recall_")):
+                    # echo格式: get_all_history_{group_id} 或 loop_recall_{group_id}_{attempt}
+                    try:
+                        if echo.startswith("get_all_history_"):
+                            group_id = int(echo.split("_")[-1])
+                            attempt = 1
+                        else:
+                            parts = echo.split("_")
+                            group_id = int(parts[2])
+                            attempt = int(parts[3])
+                    except:
+                        group_id = None
+                        attempt = 1
+
+                    if event.get("status") == "ok" and "data" in event:
+                        messages = event["data"].get("messages", [])
+                        
+                        # 过滤无效消息，只保留真正可撤回的
+                        valid_messages = []
+                        for msg in messages:
+                            raw = msg.get("raw_message", "")
+                            # 跳过已删除的消息
+                            if raw not in ["[已删除]", "&#91;已删除&#93;"]:
+                                valid_messages.append(msg)
+
+                        if len(valid_messages) > 0:
+                            if DEBUG_MODE:
+                                print(f"[群管理模块] 第 {attempt} 次扫描，发现 {len(valid_messages)} 条有效消息，执行撤回...")
+                            
+                            recalled_count = 0
+                            for msg in valid_messages:
+                                msg_id = msg.get("message_id")
+                                # 发送撤回请求
+                                try:
+                                    recall_payload = {
+                                        "action": "delete_msg",
+                                        "params": {"message_id": msg_id},
+                                        "echo": f"all_recall_{msg_id}"
+                                    }
+                                    await websocket.send_text(json.dumps(recall_payload))
+                                    recalled_count += 1
+                                    await asyncio.sleep(0.5) # 增加延迟避免频控
+                                except Exception as e:
+                                    print(f"[群管理模块] ❌ 撤回消息 {msg_id} 失败: {e}")
+                            
+                            # === 强制三段清理 ===
+                            # 无论前3次是否找到消息，都强制发起下一波扫描
+                            # 这能彻底解决由 OneBot 消息同步极度滞后导致的“明明有消息却没取到”的问题
+                            # 相当于模拟用户手动连发了3次“撤回全部”
+                            if attempt <= 3:
+                                print(f"[群管理模块] 第 {attempt} 波清理结束，等待2秒后强制进行第 {attempt + 1} 波扫尾...")
+                                await asyncio.sleep(2) # 稍作休息，让OneBot刷新状态
+                                
+                                # from config import RECALL_COUNT （已弃用）
+                                next_payload = {
+                                    "action": "get_group_msg_history",
+                                    "params": {
+                                        "group_id": group_id,
+                                        # 强制清理200条
+                                        "count": 200 
+                                    },
+                                    "echo": f"loop_recall_{group_id}_{attempt + 1}"
+                                }
+                                await websocket.send_text(json.dumps(next_payload))
+                            elif attempt < 5 and len(valid_messages) > 0:
+                                # 第4、5次，只有当确实还能找到未撤回消息时，才继续循环
+
+                                # 防止无限空转
+                                print(f"[群管理模块] 仍有残留消息，准备进行第 {attempt + 1} 次扫尾...")
+                                await asyncio.sleep(2)
+                                # from config import RECALL_COUNT
+                                next_payload = {
+                                    "action": "get_group_msg_history",
+                                    "params": {
+                                        "group_id": group_id,
+                                        "count": 200 
+                                    },
+                                    "echo": f"loop_recall_{group_id}_{attempt + 1}"
+                                }
+                                await websocket.send_text(json.dumps(next_payload))
+                            else:
+                                print(f"[群管理模块] 清洗任务完成 (尝试次数: {attempt})")
+
+                        else:
+                            if DEBUG_MODE:
+                                print(f"[群管理模块] 第 {attempt} 次扫描未发现有效消息，清洗完成 ✅")
+                    else:
+                        print(f"[群管理模块] ❌ 获取历史消息失败: {event.get('message', '未知错误')}")
+                
+                # 处理撤回回执（避免显示非预期Echo警告）
+                elif echo and echo.startswith("all_recall_"):
+                    if DEBUG_MODE:
+                        print(f"[群管理模块] 收到撤回成功回执: {echo}")
+
+                    else:
+                        print(f"[群管理模块] ❌ 获取全部历史消息失败: {event.get('message', '未知错误')}")
 
 
                 

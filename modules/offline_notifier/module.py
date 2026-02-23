@@ -54,9 +54,9 @@ class OfflineNotifierModule(BaseModule):
         self.bot_qq_list = get_bot_qq_list()
         
         # 监测的机器人列表(留空则监测所有)
+        # 监测的机器人列表(留空则监测所有)
         self.monitored_bots = settings.get('monitored_bots', [])
-        if not self.monitored_bots:
-            self.monitored_bots = self.bot_qq_list
+        # 注意: 如果留空，self.monitored_bots 为 [], 后续逻辑会将其视为"动态监测所有连接的机器人"
         
         # 检测间隔
         self.check_interval = settings.get('check_interval', 30)
@@ -141,7 +141,7 @@ class OfflineNotifierModule(BaseModule):
         await asyncio.sleep(5)
         
         # 初始化状态
-        self.last_online_bots = bot_manager.get_online_bots().copy()
+        self.last_online_bots = set(bot_manager.get_online_bots())
         print(f"[{self.name}] 初始在线机器人: {self.last_online_bots}")
         
         # 发送启动通知(可选)
@@ -159,11 +159,16 @@ class OfflineNotifierModule(BaseModule):
                 await asyncio.sleep(self.check_interval)
                 
                 # 获取当前在线机器人
-                current_online_bots = bot_manager.get_online_bots()
+                current_online_bots = set(bot_manager.get_online_bots())
                 
-                # 只检查监测列表中的机器人
-                monitored_current = {bot for bot in current_online_bots if bot in self.monitored_bots}
-                monitored_last = {bot for bot in self.last_online_bots if bot in self.monitored_bots}
+                # 如果 monitored_bots 为空，则监测所有在线机器人
+                if not self.monitored_bots:
+                    monitored_current = current_online_bots
+                    monitored_last = self.last_online_bots
+                else:
+                    # 只检查监测列表中的机器人
+                    monitored_current = {bot for bot in current_online_bots if bot in self.monitored_bots}
+                    monitored_last = {bot for bot in self.last_online_bots if bot in self.monitored_bots}
                 
                 # 检测离线的机器人 (已改为通过 WebSocket 断开事件触发)
                 # offline_bots = monitored_last - monitored_current

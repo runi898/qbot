@@ -70,8 +70,8 @@ class GroupAdminModule(BaseModule):
         self.recall_pattern = re.compile(r'^撤回\s*(.+)$', re.IGNORECASE)
         # 匹配引用撤回: [CQ:reply,id=123456]...撤回（中间可以有@、空格等其他内容）
         self.reply_recall_pattern = re.compile(r'\[CQ:reply,id=(\d+)\].*?撤回', re.IGNORECASE)
-        # 匹配@撤回: [CQ:at,qq=123456]...撤回 或 [CQ:at,qq=123456]...撤回 5
-        self.at_recall_pattern = re.compile(r'\[CQ:at,qq=(\d+).*?\].*?撤回(?:\s+(\d+))?', re.IGNORECASE)
+        # 匹配@撤回: [CQ:at,qq=123456]...撤回 或 撤回 [CQ:at,qq=123456]
+        self.at_recall_pattern = re.compile(r'(?:\[CQ:at,qq=(\d+).*?\]\s*撤回|撤回\s*\[CQ:at,qq=(\d+).*?\])(?:\s+(\d+))?', re.IGNORECASE)
         # 匹配 dwz 指令: dwz 京东链接
         self.dwz_pattern = re.compile(r'^dwz\s+(https?://[^\s]+)', re.IGNORECASE)
         
@@ -313,8 +313,11 @@ class GroupAdminModule(BaseModule):
             # 2. 检查 @撤回
             at_match = self.at_recall_pattern.search(message)
             if at_match:
-                target_qq = int(at_match.group(1))
-                count_str = at_match.group(2)
+                # 兼容两种格式：
+                # 1. [CQ:at,qq=123] 撤回 -> group(1)=123, group(2)=None, group(3)=count
+                # 2. 撤回 [CQ:at,qq=123] -> group(1)=None, group(2)=123, group(3)=count
+                target_qq = int(at_match.group(1)) if at_match.group(1) else int(at_match.group(2))
+                count_str = at_match.group(3)
                 # 如果没有指定数量，默认为 100 (意味着撤回该用户近期所有消息)
                 count = int(count_str) if count_str else 100
                 
@@ -433,22 +436,24 @@ class GroupAdminModule(BaseModule):
         """
         try:
             # 通过OneBot API获取群历史消息
+            # echo格式: get_recent_history_{group_id}_{count}
+            # main.py 通过解析此 echo 来限量撤回
             history_payload = {
                 "action": "get_group_msg_history",
                 "params": {
                     "group_id": context.group_id,
                     "count": count + 10  # 多获取一些，以防有些消息无法撤回
                 },
-                "echo": f"get_history_{context.group_id}"
+                "echo": f"get_recent_history_{context.group_id}_{count}"
             }
             
             await context.ws.send_text(json.dumps(history_payload))
             if DEBUG_MODE:
-                print(f"[{self.name}] 已请求获取群 {context.group_id} 的历史消息")
+                print(f"[{self.name}] 已请求获取群 {context.group_id} 的最近 {count} 条历史消息")
             
             # 注意：这里只是发送请求，实际撤回需要在收到响应后进行
             # 由于是异步操作，这里返回提示信息
-            return f"✅ 正在获取最近 {count} 条消息并撤回..."
+            return f"✅ 正在获取并撤回最近 {count} 条消息..."
             
         except Exception as e:
             print(f"[{self.name}] ❌ 获取历史消息失败: {e}")
@@ -502,22 +507,28 @@ class GroupAdminModule(BaseModule):
             操作结果
         """
         try:
+            # 动态导入配置以获取最新值
+            # from config import RECALL_COUNT （已弃用，直接撤回大量消息）
+            pass 
+            
+            # 移除 1.5秒 延迟，改回立即执行，避免阻塞消息循环
+            
             # 获取大量历史消息
             history_payload = {
                 "action": "get_group_msg_history",
                 "params": {
                     "group_id": context.group_id,
-                    "count": 100  # 一次获取100条
+                    "count": 200  # 直接获取200条，尽力撤回全部
                 },
                 "echo": f"get_all_history_{context.group_id}"
             }
             
             await context.ws.send_text(json.dumps(history_payload))
             if DEBUG_MODE:
-                print(f"[{self.name}] 已请求获取群 {context.group_id} 的所有历史消息")
+                print(f"[{self.name}] 已请求获取群 {context.group_id} 的 200 条历史消息")
             
-            return f"✅ 正在获取所有消息并撤回..."
+            return f"✅ 正在获取并撤回最近的 200 条消息..."
             
         except Exception as e:
-            print(f"[{self.name}] ❌ 获取历史消息失败: {e}")
-            return f"❌ 获取历史消息失败: {str(e)}"
+            print(f"[{self.name}] ❌ 撤回请求失败: {e}")
+            return f"❌ 撤回请求失败: {str(e)}"
