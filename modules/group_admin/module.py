@@ -348,11 +348,10 @@ class GroupAdminModule(BaseModule):
             elif param.isdigit():
                 # 撤回N条消息或撤回指定message_id
                 value = int(param)
-                # 简单判断：如果数字较小（<100）且不是明显的消息ID长度（消息ID通常用于精确撤回，比较长）
-                # 为了区分 "撤回 5" 和 "撤回 12345678"
-                # 这里假设小于 50 的数字是撤回最近N条
-                if value <= 50:
-                    # 撤回最近N条消息
+                # message_id 通常是10位大数字（如 2020896908）
+                # N 条数量一般不超过 1000，用 100000 作为分界
+                if value <= 100000:
+                    # 撤回最近N条机器人消息
                     result = await self.recall_recent_messages(context, value)
                 else:
                     # 撤回指定message_id
