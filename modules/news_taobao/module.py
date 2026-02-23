@@ -106,7 +106,9 @@ class TaobaoNewsCollector:
                 params["relation_id"] = relation_id
 
             if DEBUG_MODE:
-                print(f"[{self.name}] API请求参数: {params}")
+                from urllib.parse import urlencode
+                full_url = f"{api_url}?{urlencode(params)}"
+                print(f"[{self.name}] API完整请求URL: {full_url}")
 
             async with aiohttp.ClientSession() as session:
                 if DEBUG_MODE:
@@ -190,7 +192,9 @@ class TaobaoNewsCollector:
                 params["relation_id"] = relation_id
 
             if DEBUG_MODE:
-                print(f"[{self.name}] 淘口令API请求参数: {params}")
+                from urllib.parse import urlencode
+                full_url = f"{api_url}?{urlencode(params)}"
+                print(f"[{self.name}] 淘口令API完整请求URL: {full_url}")
 
             async with aiohttp.ClientSession() as session:
                 async with session.get(api_url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as response:

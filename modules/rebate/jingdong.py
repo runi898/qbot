@@ -82,7 +82,9 @@ class JingdongConverter:
                 }
                 
                 if DEBUG_MODE:
-                    print(f"[京东转换器] 调用折京客API: {self.base_url} with materialId={material_url}")
+                    from urllib.parse import urlencode
+                    full_url = f"{self.base_url}?{urlencode(params)}"
+                    print(f"[京东转换器] 折京客API完整请求URL: {full_url}")
                 
                 # 第一次API调用：获取商品详情和短链接
                 async with session.get(self.base_url, params=params, timeout=10) as response:

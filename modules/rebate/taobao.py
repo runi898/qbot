@@ -4,7 +4,8 @@
 
 import aiohttp
 from typing import Optional, Set
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
+from config import DEBUG_MODE
 
 
 class TaobaoConverter:
@@ -40,9 +41,15 @@ class TaobaoConverter:
                     "signurl": 5
                 }
                 
+                if DEBUG_MODE:
+                    full_url = f"{self.base_url}?{urlencode(params)}"
+                    print(f"[TaobaoConverter] 淘宝返利API完整请求URL: {full_url}")
+                
                 async with session.get(self.base_url, params=params, timeout=10) as response:
                     response.raise_for_status()
                     result = await response.json(content_type=None)
+                    if DEBUG_MODE:
+                        print(f"[TaobaoConverter] API响应: status={result.get('status')}, content_count={len(result.get('content', []))}")  
                     
                     if result.get("status") == 200 and "content" in result:
                         content = result["content"][0]
