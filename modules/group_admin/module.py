@@ -8,6 +8,7 @@
 import re
 import json
 import sys
+from datetime import datetime
 import os
 from typing import Optional
 from core.base_module import BaseModule, ModuleContext, ModuleResponse
@@ -211,6 +212,13 @@ class GroupAdminModule(BaseModule):
                 print(f"[{self.name}] 跳过机器人消息: {context.user_id}")
             return False
         
+        # time 指令 - 所有用户可用，群聊/私聊均可
+        if message.strip().lower() == 'time':
+            # 仍需优先级检查（避免多bot重复回复）
+            if context.group_id and not self.should_respond_by_priority(context):
+                return False
+            return True
+        
         # 2. 只处理群消息 (如果是 dwz 指令，允许私聊)
         is_dwz = bool(self.dwz_pattern.search(message))
         if context.group_id is None and not is_dwz:
@@ -249,6 +257,17 @@ class GroupAdminModule(BaseModule):
     async def handle(self, message: str, context: ModuleContext) -> Optional[ModuleResponse]:
         """处理消息"""
         msg = message.strip()
+
+        # time 指令 - 返回当前服务器时间
+        if msg.lower() == 'time':
+            now = datetime.now()
+            time_str = now.strftime('%Y-%m-%d %H:%M:%S')
+            weekdays = ['一', '二', '三', '四', '五', '六', '日']
+            weekday = weekdays[now.weekday()]
+            return ModuleResponse(
+                content=f"🕐 当前时间\n{time_str}\n星期{weekday}",
+                auto_recall=False
+            )
 
         # 针对数据库和定时相关指令，暂时交由主程序处理
         # 避免通过 import main 导致副作用
