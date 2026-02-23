@@ -1845,19 +1845,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     # 从配置加载模块
     from config import (
         NEWS_COLLECTOR_CONFIG,
+        NEWS_TAOBAO_CONFIG,
         NEWS_FORWARDER_CONFIG,
         REBATE_MODULE_CONFIG,
         GROUP_ADMIN_CONFIG,
         OFFLINE_NOTIFIER_CONFIG,
     )
     
-    # 加载线报收集模块
+    # 加载京东线报收集模块
     if NEWS_COLLECTOR_CONFIG.get('enabled', True):
         try:
             await module_loader.load_module_from_path('modules/news_jd', NEWS_COLLECTOR_CONFIG)
-            print("[系统] 线报收集模块加载成功")
+            print("[系统] 京东线报收集模块加载成功")
         except Exception as e:
-            print(f"[系统] 线报收集模块加载失败: {e}")
+            print(f"[系统] 京东线报收集模块加载失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # 加载淘宝线报收集模块
+    if NEWS_TAOBAO_CONFIG.get('enabled', True):
+        try:
+            await module_loader.load_module_from_path('modules/news_taobao', NEWS_TAOBAO_CONFIG)
+            print("[系统] 淘宝线报收集模块加载成功")
+        except Exception as e:
+            print(f"[系统] 淘宝线报收集模块加载失败: {e}")
             import traceback
             traceback.print_exc()
     
