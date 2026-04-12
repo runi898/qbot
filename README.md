@@ -6,21 +6,55 @@
 
 ## 🚀 快速开始
 
-### 1. 安装依赖
-```bash
-pip install -r requirements.txt
-```
+### 🐳 方式一：Docker 运行 (推荐)
 
-### 2. 配置
-编辑 `config.py`，填入你的配置：
-- 监控群号
-- API 密钥（淘宝、京东）
-- 其他设置
+本项目已提供完整的 Docker 支持，推荐使用 Docker Compose 进行部署。
 
-### 3. 运行
-```bash
-python main.py
-```
+1.  **克隆仓库**
+    ```bash
+    git clone https://github.com/runi898/qbot.git
+    cd qbot
+    ```
+2.  **复制配置文件**
+    ```bash
+    cp config.py.example config.py
+    ```
+3.  **编辑配置**
+    编辑 `config.py`，填入你的监控群号、API 密钥等设置。
+4.  **启动服务**
+    - **Linux (推荐脚本)**:
+      ```bash
+      chmod +x docker-start.sh
+      ./docker-start.sh
+      ```
+    - **通用 (Docker Compose)**:
+      ```bash
+      docker-compose up -d
+      ```
+5.  **查看状态/日志**
+    ```bash
+    docker logs -f qbot
+    ```
+
+---
+
+### 🐍 方式二：本地运行
+
+1.  **克隆仓库**
+    ```bash
+    git clone https://github.com/runi898/qbot.git
+    cd qbot
+    ```
+2.  **安装依赖**
+    ```bash
+    pip install -r requirements.txt
+    ```
+3.  **配置**
+    编辑 `config.py`，填入你的配置。
+4.  **运行**
+    ```bash
+    python main.py
+    ```
 
 ## 📁 目录结构
 
