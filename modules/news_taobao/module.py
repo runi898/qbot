@@ -42,12 +42,16 @@ class TaobaoNewsCollector:
             r"https?://detail\.tmall\.com/\S+",
             r"https?://item\.taobao\.com/\S+",
         ]
-        # 淘口令匹配（带有￥符号的短代码）
+        # 淘口令匹配（带有￥符号的各种短代码）
         self.tkl_patterns = [
-            r"(?:￥|\$)([0-9A-Za-z()]*[A-Za-z][0-9A-Za-z()]{10})(?:￥|\$)?(?![0-9A-Za-z])",
-            r"tk=([0-9A-Za-z]{11,12})",
-            r"\(([0-9A-Za-z]{11})\)",
-            r"₤([0-9A-Za-z]{13})₤",
+            r"(?:￥|\$)([0-9A-Za-z()]*[A-Za-z][0-9A-Za-z()]{10})(?:￥|\$)?(?![0-9A-Za-z])",  # ￥xxx￥ 或 $xxx$
+            r"tk=([0-9A-Za-z]{11,12})",     # tk=xxx
+            r"\(([0-9A-Za-z]{11})\)",       # (xxx)
+            r"₤([0-9A-Za-z]{13})₤",         # ₤xxx₤
+            r"/([0-9A-Za-z]{11,12})[)/]/",  # /xxx)/ 或 /xxx/
+            r"/([0-9A-Za-z]{11,12})/",      # /xxx/
+            r"【([0-9A-Za-z]{11,12})】",    # 【xxx】
+            r"(?:€|subset)([0-9A-Za-z]{11,12})(?:€|subset)",  # €xxx€ 或 subsetxxxsubset
         ]
 
         print("[✓] 淘宝线报收集器初始化完成")
@@ -377,15 +381,16 @@ class TaobaoNewsModule(BaseModule):
             return None
 
         # 2) 转发到目标群（由当前账号发送）
-        targets = self.forward_targets.get(int(context.self_id), [])
-        if DEBUG_MODE:
-            print(f"[{self.name}] 转发目标群: {targets}")
-        for target_group in targets:
-            if DEBUG_MODE:
-                print(f"[{self.name}] 正在转发到群 {target_group}")
-            await self._send_to_group(context, target_group, result.get("converted_message", ""))
-            if DEBUG_MODE:
-                print(f"[{self.name}] 已转发到群 {target_group}")
+        # 已改为由 NewsForwarderModule 处理，此处不再执行直接转发，避免重复
+        # targets = self.forward_targets.get(int(context.self_id), [])
+        # if DEBUG_MODE:
+        #     print(f"[{self.name}] 转发目标群: {targets}")
+        # for target_group in targets:
+        #     if DEBUG_MODE:
+        #         print(f"[{self.name}] 正在转发到群 {target_group}")
+        #     await self._send_to_group(context, target_group, result.get("converted_message", ""))
+        #     if DEBUG_MODE:
+        #         print(f"[{self.name}] 已转发到群 {target_group}")
 
         # 3) 触发关键词订阅通知（异步，不阻塞主流程）
         try:

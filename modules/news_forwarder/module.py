@@ -223,8 +223,9 @@ class NewsForwarderModule(BaseModule):
         await super().on_load(config)
         
         self.forwarder_config = config
-        self.forward_interval = config.get('forward_interval', 5)  # 转发间隔（秒）
-        self.batch_size = config.get('batch_size', 1)  # 每次转发数量
+        settings = config.get('settings', {})
+        self.forward_interval = settings.get('forward_interval', 5)  # 转发间隔（秒）
+        self.batch_size = settings.get('batch_size', 1)  # 每次转发数量
         
         print(f"[{self.name}] 模块已加载 (v{self.version})")
         print(f"[{self.name}] 转发间隔: {self.forward_interval}秒")
@@ -250,7 +251,7 @@ class NewsForwarderModule(BaseModule):
         
         while True:
             try:
-                from modules.news_database import news_db
+                from modules.news_collector.database import news_db
                 
                 # 获取待转发线报
                 pending_news = news_db.get_pending_news(limit=self.batch_size)
@@ -288,7 +289,8 @@ class NewsForwarderModule(BaseModule):
         """
         try:
             # 获取转发配置
-            forwarders = self.forwarder_config.get('forwarders', [])
+            settings = self.forwarder_config.get('settings', {})
+            forwarders = settings.get('forwarders', [])
             
             if not forwarders:
                 print(f"[{self.name}] 错误: 没有配置转发账号")
@@ -307,7 +309,7 @@ class NewsForwarderModule(BaseModule):
                 return False
             
             # 获取bot_manager
-            from main import bot_manager
+            from core import bot_manager
             
             # 找到第一个在线的QQ
             online_qq = None

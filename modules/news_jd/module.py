@@ -298,15 +298,16 @@ class JDNewsModule(BaseModule):
             return None
 
         # 2) 转发到 targets（由当前账号发送）
-        targets = self.forward_targets.get(int(context.self_id), [])
-        if DEBUG_MODE:
-            print(f"[{self.name}] 转发目标群: {targets}")
-        for target_group in targets:
-            if DEBUG_MODE:
-                print(f"[{self.name}] 正在转发到群 {target_group}")
-            await self._send_to_group(context, target_group, result.get("converted_message", ""))
-            if DEBUG_MODE:
-                print(f"[{self.name}] 已转发到群 {target_group}")
+        # 已改为由 NewsForwarderModule 处理，此处不再执行直接转发，避免重复
+        # targets = self.forward_targets.get(int(context.self_id), [])
+        # if DEBUG_MODE:
+        #     print(f"[{self.name}] 转发目标群: {targets}")
+        # for target_group in targets:
+        #     if DEBUG_MODE:
+        #         print(f"[{self.name}] 正在转发到群 {target_group}")
+        #     await self._send_to_group(context, target_group, result.get("converted_message", ""))
+        #     if DEBUG_MODE:
+        #         print(f"[{self.name}] 已转发到群 {target_group}")
 
         # 3) 触发关键词订阅通知（异步）
         try:

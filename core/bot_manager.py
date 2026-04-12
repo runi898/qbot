@@ -2,7 +2,7 @@
 机器人管理器 - 管理在线机器人状态
 用于解决循环引用问题，提供全局共享的机器人连接状态
 """
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 # 存储在线机器人的连接对象 (self_id -> websocket)
 # 注意：这里我们不直接依赖 WebSocket 类型以避免循环引用，或者只在函数内部使用
@@ -91,3 +91,53 @@ def clear_bot_groups(self_id: int):
     """
     if self_id in _bot_groups:
         del _bot_groups[self_id]
+
+# === 机器人对象包装类 (提供兼容性接口) ===
+import json
+import asyncio
+
+class Bot:
+    """机器人包装类，提供与 OneBot API 交互的方法"""
+    def __init__(self, self_id: int, websocket: Any):
+        self.self_id = self_id
+        self.ws = websocket
+
+    async def send_group_msg(self, group_id: int, message: str, auto_escape: bool = False):
+        """发送群消息"""
+        payload = {
+            "action": "send_group_msg",
+            "params": {
+                "group_id": group_id,
+                "message": message,
+                "auto_escape": auto_escape
+            },
+            "echo": f"send_group_msg_{self.self_id}_{int(asyncio.get_event_loop().time())}"
+        }
+        await self.ws.send_text(json.dumps(payload))
+
+    async def send_private_msg(self, user_id: int, message: str, auto_escape: bool = False):
+        """发送私聊消息"""
+        payload = {
+            "action": "send_private_msg",
+            "params": {
+                "user_id": user_id,
+                "message": message,
+                "auto_escape": auto_escape
+            },
+            "echo": f"send_private_msg_{self.self_id}_{int(asyncio.get_event_loop().time())}"
+        }
+        await self.ws.send_text(json.dumps(payload))
+
+def get_bot(self_id: int) -> Optional[Bot]:
+    """获取指定机器人的兼容性对象实例"""
+    ws = get_bot_connection(self_id)
+    if ws:
+        return Bot(self_id, ws)
+    return None
+
+def get_all_bots() -> List[Bot]:
+    """获取所有在线机器人的兼容性对象实例列表"""
+    bots = []
+    for self_id, ws in _connected_bots.items():
+        bots.append(Bot(self_id, ws))
+    return bots
