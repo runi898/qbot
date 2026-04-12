@@ -252,16 +252,39 @@ class NewsForwarderModule(BaseModule):
         while True:
             try:
                 from modules.news_collector.database import news_db
-                
+                from modules.news_subscription.module import SubscriptionManager
+                subscription_manager = SubscriptionManager()
+
                 # 获取待转发线报
                 pending_news = news_db.get_pending_news(limit=self.batch_size)
-                
+
                 if pending_news:
                     for news in pending_news:
                         # 转发线报
                         success = await self.forward_news(news)
-                        
+
                         if success:
+                            # 触发订阅推送
+                            msg_content = news.get('converted_message', '')
+                            # 使用转发机器人列表中的第一个在线 QQ 进行推送
+                            settings = self.forwarder_config.get('settings', {})
+                            forwarders = settings.get('forwarders', [])
+                            if forwarders:
+                                forwarder = forwarders[0]
+                                qq_list = forwarder.get('qq', [])
+                                if isinstance(qq_list, int): qq_list = [qq_list]
+                                
+                                # 找到一个在线的机器人进行推送
+                                from core import bot_manager
+                                push_bot = None
+                                for q in qq_list:
+                                    if bot_manager.get_bot(q):
+                                        push_bot = q
+                                        break
+                                
+                                if push_bot and msg_content:
+                                    await subscription_manager.push_to_subscribers(msg_content, push_bot)
+
                             # 标记为已转发
                             news_db.mark_as_forwarded(news.get('id'))
                         

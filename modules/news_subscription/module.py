@@ -29,12 +29,23 @@ class SubscriptionManager:
             cls._instance.initialized = False
         return cls._instance
     
+    def __init__(self):
+        # 属性声明以辅助 IDE
+        if not hasattr(self, 'initialized'):
+            self.subscriptions = {}
+            self.user_paused = set()
+            self.initialized = False
+
     def initialize(self):
         if self.initialized:
             return
             
         print("[Subscription] 初始化内存缓存...")
         valid_subs = news_db.get_all_subscriptions()
+        
+        # 统计并打印加载的关键词，用于调试
+        loaded_keywords = [sub['keyword'] for sub in valid_subs]
+        print(f"[Subscription] 正在从数据库加载订阅: {loaded_keywords}")
         
         for sub in valid_subs:
             user_id = sub['user_id']
@@ -47,7 +58,7 @@ class SubscriptionManager:
                 self.user_paused.add(user_id)
                 
         self.initialized = True
-        print(f"[Subscription] 加载了 {len(valid_subs)} 条订阅记录")
+        print(f"[Subscription] 加载完成，共有 {len(valid_subs)} 条订阅记录")
 
     def _add_to_cache(self, user_id: int, keyword: str):
         if keyword not in self.subscriptions:
@@ -125,9 +136,56 @@ class SubscriptionManager:
         # 这里简化逻辑：只对订阅过的用户生效
         return False
 
+    async def push_to_subscribers(self, content: str, bot_id: int, exclude_user: Optional[int] = None):
+        """
+        匹配内容并推送给订阅用户
+        """
+        # 确保已初始化
+        self.initialize()
+        
+        matched_users = self.get_matches(content)
+        if not matched_users:
+            # 调试日志：未匹配到任何用户
+            # print(f"[Subscription] 内容未匹配到任何订阅关键词")
+            return
+            
+        if exclude_user and exclude_user in matched_users:
+            matched_users.discard(exclude_user)
+            
+        if not matched_users:
+            return
+            
+        print(f"[Subscription] 匹配到 {len(matched_users)} 个用户，由机器人 {bot_id} 准备推送")
+        
+        # 获取 WebSocket 连接
+        ws = bot_manager.get_bot_connection(bot_id)
+        if not ws:
+            print(f"[Subscription] 无法获取机器人 {bot_id} 的 WebSocket 连接，推送失败")
+            return
+
+        import json
+        from datetime import datetime
+        
+        # 批量发送私聊通知
+        for target_uid in matched_users:
+            try:
+                # 构造简单的通知消息
+                notify_msg = f"【线报推送】\n{content}"
+                payload = {
+                    "action": "send_private_msg",
+                    "params": {
+                        "user_id": target_uid,
+                        "message": notify_msg
+                    },
+                    "echo": f"push_notify_{target_uid}_{int(datetime.now().timestamp())}"
+                }
+                await ws.send_text(json.dumps(payload))
+            except Exception as e:
+                print(f"[Subscription] 推送给 {target_uid} 失败: {e}")
+
     def get_matches(self, content: str) -> Set[int]:
         """
-        获取所有匹配该内容的用户ID集合
+        获取所有匹配该内容的用户ID集合 (严格匹配版本)
         """
         matched_users = set()
         
@@ -145,12 +203,15 @@ class SubscriptionManager:
                     is_match = True
             
             if is_match:
+                # 打印匹配成功的关键词
+                print(f"[Subscription] 关键词 '{keyword}' 匹配成功!")
                 # 过滤已暂停的用户
                 users = data['user_ids']
                 active_users = {uid for uid in users if uid not in self.user_paused}
                 matched_users.update(active_users)
                 
         return matched_users
+
 
 
 class NewsSubscriptionModule(BaseModule):
@@ -323,39 +384,6 @@ class NewsSubscriptionModule(BaseModule):
                 return ModuleResponse(f"已存在订阅：{keyword}", auto_recall=True, recall_delay=10)
         
         # === 消息匹配与推送 ===
-        # 如果不是指令，检查是否有匹配的订阅
-        matched_users = self.manager.get_matches(msg)
-        if matched_users:
-            # 过滤掉发送者自己（可选，防止自己发的消息推送给自己）
-            if user_id in matched_users:
-                matched_users.discard(user_id)
-                
-            if matched_users:
-                print(f"[{self.name}] 消息 '{msg[:10]}...' 匹配到 {len(matched_users)} 个用户，准备推送")
-                
-                # 获取 WebSocket 连接
-                ws = bot_manager.get_bot_connection(context.self_id)
-                if ws:
-                    import json
-                    from datetime import datetime
-                    
-                    # 批量发送私聊通知
-                    for target_uid in matched_users:
-                        try:
-                            # 构造简单的通知消息
-                            notify_msg = f"【线报推送】\n{msg}"
-                            payload = {
-                                "action": "send_private_msg",
-                                "params": {
-                                    "user_id": target_uid,
-                                    "message": notify_msg
-                                },
-                                "echo": f"push_notify_{target_uid}_{int(datetime.now().timestamp())}"
-                            }
-                            await ws.send_text(json.dumps(payload))
-                        except Exception as e:
-                            print(f"[{self.name}] 推送给 {target_uid} 失败: {e}")
-                else:
-                    print(f"[{self.name}] 无法获取 WebSocket 连接中，推送失败")
-                    
+        # 如果不是指令，检查是否有匹配的订阅并推送
+        await self.manager.push_to_subscribers(msg, context.self_id, exclude_user=user_id)
         return None
