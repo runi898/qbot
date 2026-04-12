@@ -59,11 +59,11 @@ JINGDONG_CONFIG = {
     "position_id": "YOUR_POSITION_ID",  # 你的推广位 ID
 }
 
-# 京推推 API 配置（口令转链）
-JINGTUITUI_CONFIG = {
-    "appid": "YOUR_APPID",  # 你的京推推 APPID
-    "appkey": "YOUR_APPKEY",  # 你的京推推 APPKEY
-}
+# 京推推 API 配置（口令转链）- 已弃用，改用折京客
+# JINGTUITUI_CONFIG = {
+#     "appid": "YOUR_APPID",  # 你的京推推 APPID
+#     "appkey": "YOUR_APPKEY",  # 你的京推推 APPKEY
+# }
 
 # 京东短链转换配置
 JD_DWZ_CONFIG = {
@@ -230,7 +230,7 @@ REBATE_MODULE_CONFIG = {
     # ===== 4. API配置（在settings外层）=====
     "淘宝API": TAOBAO_CONFIG,
     "京东API": JINGDONG_CONFIG,
-    "京推推API": JINGTUITUI_CONFIG,
+    # "京推推API": JINGTUITUI_CONFIG,
 }
 
 # 天气模块配置（示例）

@@ -25,7 +25,6 @@ from config import (
     VERBOSE_LOGGING,
     TAOBAO_CONFIG,
     JINGDONG_CONFIG,
-    JINGTUITUI_CONFIG,
     AUTO_CLEANUP_ENABLED,
     CLEANUP_DAYS,
     CLEANUP_HOUR,
@@ -47,9 +46,6 @@ RELATION_ID = TAOBAO_CONFIG.get("relation_id", "")
 JD_APPKEY = JINGDONG_CONFIG.get("appkey", "")
 JD_UNION_ID = JINGDONG_CONFIG.get("union_id", "")
 JD_POSITION_ID = JINGDONG_CONFIG.get("position_id", "")
-
-JTT_APPID = JINGTUITUI_CONFIG.get("appid", "")
-JTT_APPKEY = JINGTUITUI_CONFIG.get("appkey", "")
 
 # 调试日志函数
 def debug_log(message: str):
@@ -567,32 +563,12 @@ async def convert_jd_link(material_url: str, processed_titles: Set[str]) -> Opti
                     image_cq = f"[CQ:image,file={pict_url}]" if pict_url else ""
                     short_url_from_zhetaoke = content.get('shorturl', '') # Get the short URL from the first API
                     
-                    # --- 京推推口令 API 调用 ---
-                    # 只有在成功获取到折京客短链接后才调用京推推生成口令
-                    if short_url_from_zhetaoke:
-                        # 使用折京客返回的短链接作为 gid 参数
-                        command_api_url = f"http://japi.jingtuitui.com/api/get_goods_command?appid={JTT_APPID}&appkey={JTT_APPKEY}&unionid={JD_UNION_ID}&gid={quote(short_url_from_zhetaoke)}"
-                        if JD_POSITION_ID:
-                            command_api_url += f"&positionid={JD_POSITION_ID}"
-                        
-                        debug_log(f"调用京推推口令API: {command_api_url}")
-                        
-                        try:
-                            async with session.post(command_api_url, timeout=5) as cmd_response:
-                                cmd_response.raise_for_status()
-                                cmd_result = await cmd_response.json(content_type=None)
-                                if "return" in cmd_result and cmd_result.get("msg", "").startswith("ok"):
-                                    jd_command_text_raw = cmd_result["return"].get("jd_short_kl", "")
-                                    if jd_command_text_raw:
-                                        jd_command_text = f"【口令】{jd_command_text_raw}"
-                                    debug_log(f"京推推口令转换成功: {jd_command_text_raw}")
-                                else:
-                                    debug_log(f"京推推口令转换失败: {cmd_result.get('msg', '未知错误')}")
-                        except Exception as cmd_e:
-                            debug_log(f"京推推口令API请求异常: {str(cmd_e)}")
-                    else:
-                        debug_log("未获取到有效的short_url，跳过京推推口令生成。")
-
+                    # --- 获取京东口令 (从折京客返回内容中获取) ---
+                    # 直接从折京客返回内容中获取口令
+                    tkl = content.get('tkl', '')
+                    if tkl:
+                        jd_command_text = f"【口令】{tkl}"
+                        debug_log(f"实现从折京客获取口令成功: {tkl}")
 
                     # Combine results from both APIs
                     # MODIFIED: 调整返回字符串的换行符,确保精确格式
@@ -625,28 +601,8 @@ async def convert_jd_link(material_url: str, processed_titles: Set[str]) -> Opti
                             if jd_result.get("data") and jd_result["data"].get("shortURL"):
                                 short_url = jd_result["data"]["shortURL"]
                                 
-                                # --- 在错误处理分支也调用京推推生成口令 ---
+                                # --- 在错误处理分支中，zhetaoke signurl=5 通常不返回口令 ---
                                 jd_command_text = ""
-                                if short_url:
-                                    command_api_url = f"http://japi.jingtuitui.com/api/get_goods_command?appid={JTT_APPID}&appkey={JTT_APPKEY}&unionid={JD_UNION_ID}&gid={quote(short_url)}"
-                                    if JD_POSITION_ID:
-                                        command_api_url += f"&positionid={JD_POSITION_ID}"
-                                    
-                                    debug_log(f"调用京推推口令API(错误处理分支): {command_api_url}")
-                                    
-                                    try:
-                                        async with session.post(command_api_url, timeout=5) as cmd_response:
-                                            cmd_response.raise_for_status()
-                                            cmd_result = await cmd_response.json(content_type=None)
-                                            if "return" in cmd_result and cmd_result.get("msg", "").startswith("ok"):
-                                                jd_command_text_raw = cmd_result["return"].get("jd_short_kl", "")
-                                                if jd_command_text_raw:
-                                                    jd_command_text = f"\n【口令】{jd_command_text_raw}"
-                                                debug_log(f"京推推口令转换成功(错误处理分支): {jd_command_text_raw}")
-                                            else:
-                                                debug_log(f"京推推口令转换失败(错误处理分支): {cmd_result.get('msg', '未知错误')}")
-                                    except Exception as cmd_e:
-                                        debug_log(f"京推推口令API请求异常(错误处理分支): {str(cmd_e)}")
                                 
                                 return f"优惠: {short_url}{jd_command_text}"
                             return f"JD转换失败: {error_message}"

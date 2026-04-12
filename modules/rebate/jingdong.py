@@ -100,37 +100,45 @@ class JingdongConverter:
                         image_cq = f"[CQ:image,file={pict_url}]" if pict_url else ""
                         short_url_from_zhetaoke = content.get('shorturl', '')  # 从第一次API获取短链接
                         
-                        # --- 京推推口令 API 调用 ---
+                        # --- 京推推口令 API 调用 (已注释，改用折京客) ---
                         # 只有在成功获取到折京客短链接后才调用京推推生成口令
                         jd_command_text = ""
-                        if short_url_from_zhetaoke and self.jtt_appid and self.jtt_appkey:
-                            # 使用折京客返回的短链接作为 gid 参数
-                            command_api_url = f"http://japi.jingtuitui.com/api/get_goods_command?appid={self.jtt_appid}&appkey={self.jtt_appkey}&unionid={self.union_id}&gid={quote(short_url_from_zhetaoke)}"
-                            if self.position_id:
-                                command_api_url += f"&positionid={self.position_id}"
-                            
+                        
+                        # 直接从折京客返回内容中获取口令
+                        tkl = content.get('tkl', '')
+                        if tkl:
+                            jd_command_text = f"【口令】{tkl}"
                             if DEBUG_MODE:
-                                print(f"[京东转换器] 调用京推推口令API: {command_api_url}")
-                            
-                            try:
-                                async with session.post(command_api_url, timeout=5) as cmd_response:
-                                    cmd_response.raise_for_status()
-                                    cmd_result = await cmd_response.json(content_type=None)
-                                    if "return" in cmd_result and cmd_result.get("msg", "").startswith("ok"):
-                                        jd_command_text_raw = cmd_result["return"].get("jd_short_kl", "")
-                                        if jd_command_text_raw:
-                                            jd_command_text = f"【口令】{jd_command_text_raw}"
-                                        if DEBUG_MODE:
-                                            print(f"[京东转换器] 京推推口令转换成功: {jd_command_text_raw}")
-                                    else:
-                                        if DEBUG_MODE:
-                                            print(f"[京东转换器] 京推推口令转换失败: {cmd_result.get('msg', '未知错误')}")
-                            except Exception as cmd_e:
-                                if DEBUG_MODE:
-                                    print(f"[京东转换器] 京推推口令API请求异常: {str(cmd_e)}")
-                        else:
-                            if DEBUG_MODE:
-                                print("[京东转换器] 未获取到有效的short_url或未配置京推推，跳过口令生成。")
+                                print(f"[京东转换器] 从折京客获取口令成功: {tkl}")
+
+                        # if short_url_from_zhetaoke and self.jtt_appid and self.jtt_appkey:
+                        #     # 使用折京客返回的短链接作为 gid 参数
+                        #     command_api_url = f"http://japi.jingtuitui.com/api/get_goods_command?appid={self.jtt_appid}&appkey={self.jtt_appkey}&unionid={self.union_id}&gid={quote(short_url_from_zhetaoke)}"
+                        #     if self.position_id:
+                        #         command_api_url += f"&positionid={self.position_id}"
+                        #     
+                        #     if DEBUG_MODE:
+                        #         print(f"[京东转换器] 调用京推推口令API: {command_api_url}")
+                        #     
+                        #     try:
+                        #         async with session.post(command_api_url, timeout=5) as cmd_response:
+                        #             cmd_response.raise_for_status()
+                        #             cmd_result = await cmd_response.json(content_type=None)
+                        #             if "return" in cmd_result and cmd_result.get("msg", "").startswith("ok"):
+                        #                 jd_command_text_raw = cmd_result["return"].get("jd_short_kl", "")
+                        #                 if jd_command_text_raw:
+                        #                     jd_command_text = f"【口令】{jd_command_text_raw}"
+                        #                 if DEBUG_MODE:
+                        #                     print(f"[京东转换器] 京推推口令转换成功: {jd_command_text_raw}")
+                        #             else:
+                        #                 if DEBUG_MODE:
+                        #                     print(f"[京东转换器] 京推推口令转换失败: {cmd_result.get('msg', '未知错误')}")
+                        #     except Exception as cmd_e:
+                        #         if DEBUG_MODE:
+                        #             print(f"[京东转换器] 京推推口令API请求异常: {str(cmd_e)}")
+                        # else:
+                        #     if DEBUG_MODE:
+                        #         print("[京东转换器] 未获取到有效的short_url或未配置京推推，跳过口令生成。")
 
                         # 组合两个API的结果
                         return_string = f"【商品】: {jianjie}\n\n"
@@ -165,32 +173,35 @@ class JingdongConverter:
                                 if jd_result.get("data") and jd_result["data"].get("shortURL"):
                                     short_url = jd_result["data"]["shortURL"]
                                     
-                                    # --- 在错误处理分支也调用京推推生成口令 ---
+                                    # --- 在错误处理分支也尝试从结果中寻找口令 (已注释京推推) ---
                                     jd_command_text = ""
-                                    if short_url and self.jtt_appid and self.jtt_appkey:
-                                        command_api_url = f"http://japi.jingtuitui.com/api/get_goods_command?appid={self.jtt_appid}&appkey={self.jtt_appkey}&unionid={self.union_id}&gid={quote(short_url)}"
-                                        if self.position_id:
-                                            command_api_url += f"&positionid={self.position_id}"
-                                        
-                                        if DEBUG_MODE:
-                                            print(f"[京东转换器] 调用京推推口令API(错误处理分支): {command_api_url}")
-                                        
-                                        try:
-                                            async with session.post(command_api_url, timeout=5) as cmd_response:
-                                                cmd_response.raise_for_status()
-                                                cmd_result = await cmd_response.json(content_type=None)
-                                                if "return" in cmd_result and cmd_result.get("msg", "").startswith("ok"):
-                                                    jd_command_text_raw = cmd_result["return"].get("jd_short_kl", "")
-                                                    if jd_command_text_raw:
-                                                        jd_command_text = f"\n【口令】{jd_command_text_raw}"
-                                                    if DEBUG_MODE:
-                                                        print(f"[京东转换器] 京推推口令转换成功(错误处理分支): {jd_command_text_raw}")
-                                                else:
-                                                    if DEBUG_MODE:
-                                                        print(f"[京东转换器] 京推推口令转换失败(错误处理分支): {cmd_result.get('msg', '未知错误')}")
-                                        except Exception as cmd_e:
-                                            if DEBUG_MODE:
-                                                print(f"[京东转换器] 京推推口令API请求异常(错误处理分支): {str(cmd_e)}")
+                                    # 如果 zhetaoke 返回了 data 结构，通常不含口令，除非是 signurl=5 分支，但此处是异常分支
+                                    # 我们保留逻辑结构，但注释掉京推推调用
+                                    
+                                    # if short_url and self.jtt_appid and self.jtt_appkey:
+                                    #     command_api_url = f"http://japi.jingtuitui.com/api/get_goods_command?appid={self.jtt_appid}&appkey={self.jtt_appkey}&unionid={self.union_id}&gid={quote(short_url)}"
+                                    #     if self.position_id:
+                                    #         command_api_url += f"&positionid={self.position_id}"
+                                    #     
+                                    #     if DEBUG_MODE:
+                                    #         print(f"[京东转换器] 调用京推推口令API(错误处理分支): {command_api_url}")
+                                    #     
+                                    #     try:
+                                    #         async with session.post(command_api_url, timeout=5) as cmd_response:
+                                    #             cmd_response.raise_for_status()
+                                    #             cmd_result = await cmd_response.json(content_type=None)
+                                    #             if "return" in cmd_result and cmd_result.get("msg", "").startswith("ok"):
+                                    #                 jd_command_text_raw = cmd_result["return"].get("jd_short_kl", "")
+                                    #                 if jd_command_text_raw:
+                                    #                     jd_command_text = f"\n【口令】{jd_command_text_raw}"
+                                    #                 if DEBUG_MODE:
+                                    #                     print(f"[京东转换器] 京推推口令转换成功(错误处理分支): {jd_command_text_raw}")
+                                    #             else:
+                                    #                 if DEBUG_MODE:
+                                    #                     print(f"[京东转换器] 京推推口令转换失败(错误处理分支): {cmd_result.get('msg', '未知错误')}")
+                                    #     except Exception as cmd_e:
+                                    #         if DEBUG_MODE:
+                                    #             print(f"[京东转换器] 京推推口令API请求异常(错误处理分支): {str(cmd_e)}")
                                     
                                     return f"优惠: {short_url}{jd_command_text}"
                                 

@@ -47,6 +47,63 @@ start/
 └── README.md               # 本文档
 ```
 
+## 🛠 服务部署
+
+### 1. 京东 Sign 签名服务器 (H5ST)
+京东item格式的分享链接，及短链转换需要签名支持，推荐使用容器化部署签名服务器：
+
+```bash
+docker run -d \
+    --name jd_server \
+    -p 3001:3001 \
+    --log-opt max-file=2 \
+    --log-opt max-size=50m \
+    --restart always \
+    zhx47/jd_h5st_server
+```
+> [!TIP]
+> 部署完成后，请确保 `config.py` 中的 `JD_DWZ_CONFIG["sign_url"]` 指向该服务的 `/sign` 接口。
+
+---
+
+## 📖 返利参数申请教程
+
+### 🍎 京东返利参数获取
+主要参数：`折京客key`、`京东联盟 ID`。
+
+*   **折京客key获取**：app_key 和折淘客是同一个key，复制下面折淘客获取到的key填写即可
+
+#### 2. 京东联盟 ID获取-union_id参数
+*   **方法 A (官网)**：登录 [京东联盟官网](https://union.jd.com/)，在 `账户管理` 页面左上角查看 `联盟 ID`。
+*   **方法 B (京粉 App)**：下载“京粉”App，登录后在 `个人中心` 即可直接查看。
+
+#### 3. 京东渠道ID position_id参数
+进入京东联盟https://union.jd.com/manager/promotionSite，推广位管理，新建推广位，推广位ID就是京东渠道ID
+---
+
+### 🍊 淘宝返利参数获取
+主要参数：`折淘客 AppKey`、`淘客授权 SID`、`淘客 PID`。
+
+#### 1. 折淘客 AppKey
+*   注册并登录 [折淘客官网](http://www.zhetaoke.com/)。
+*   在首页或个人中心下方点击 **AppKey查看**，复制并记录。
+
+#### 2. 淘客授权 SID
+*   在折淘客“个人信息”页面，点击 **新增授权**。
+*   跳转至淘宝授权页完成登录，返回折淘客页面即可看到分配的 `SID`。
+
+#### 3. 淘客 PID
+1.  **联盟后台获取**：登录 [淘宝联盟](https://pub.alimama.com/)，在 `推广管理 -> 新增推广` 中创建位位并获取 `PID`（格式如 `mm_xxx_xxx_xxx`）。
+2.  **折淘客绑定**：回到折淘客 `个人信息 -> PID管理`，点击 **新增PID**，填入刚才获取的 PID 并完成检测。
+
+#### 4. 淘宝渠道ID
+1.  **渠道id获取**：进入网址，根据文档提示获取：（http://www.zhetaoke.com/user/open/open_sc_publisher_save.aspx）
+
+> [!IMPORTANT]
+> 所有获取到的参数请务必填入 `config.py` 对应的位置，否则转链功能将无法正常使用。
+
+---
+
 ## ⚙️ 配置说明
 
 ### config.py
@@ -123,6 +180,12 @@ JD_DWZ_CONFIG = {
 - 自动 QQ 号脱敏，上线/下线独立开关
 
 ## 📝 更新日志
+
+### v2.5.0 (2026-04-12)
+- ✅ 京东返利 API 迁移：从已禁用的 "京推推" 迁移至 "折京客" (Zhejinke)
+- ✅ 优化京东转链逻辑：支持折京客 API 生成京东口令与转链
+- ✅ 修复 Docker 部署问题：解决 `pyarrow` 缺失导致的启动失败
+- ✅ 优化镜像依赖：更新 `requirements.txt`，提升环境初始化稳定性
 
 ### v2.4.0 (2026-02-23)
 - ✅ 新增 `time` 指令：所有用户发送即可查询服务器当前时间（含星期）
