@@ -392,60 +392,21 @@ class TaobaoNewsModule(BaseModule):
         #     if DEBUG_MODE:
         #         print(f"[{self.name}] 已转发到群 {target_group}")
 
-        # 3) 触发关键词订阅通知（异步，不阻塞主流程）
+        # 3) 触发关键词订阅推送（通过 SubscriptionManager 统一推送，带去重）
         try:
             from modules.news_subscription.module import SubscriptionManager
             sub_manager = SubscriptionManager()
-            if sub_manager and sub_manager.initialized:
-                asyncio.create_task(self._notify_subscribers(context, result, sub_manager))
+            msg_content = result.get('converted_message', '')
+            if msg_content:
+                asyncio.create_task(
+                    sub_manager.push_to_subscribers(msg_content, context.self_id, exclude_user=context.user_id)
+                )
         except ImportError:
             pass
         except Exception as e:
             print(f"[{self.name}] 触发订阅通知失败: {e}")
 
         return None
-
-    async def _notify_subscribers(self, context: ModuleContext, news_data: dict, sub_manager):
-        """检查并通知关键词订阅用户"""
-        try:
-            title = news_data.get("title", "")
-            content_to_match = f"{title} {news_data.get('converted_message', '')}"
-            matched_user_ids = sub_manager.get_matches(content_to_match)
-
-            if not matched_user_ids:
-                return
-
-            if DEBUG_MODE:
-                print(f"[{self.name}] 命中订阅用户: {matched_user_ids}")
-
-            notify_msg = (
-                f"【线报提醒】您订阅的关键词有新内容！\n"
-                f"----------------\n"
-                f"{news_data.get('converted_message', '')}\n"
-                f"----------------\n"
-                f"退订请回复：取消订阅 关键词"
-            )
-
-            from main import bot_manager
-            bot = bot_manager.get_bot(context.self_id)
-            if not bot:
-                all_bots = bot_manager.get_all_bots()
-                if all_bots:
-                    bot = all_bots[0]
-
-            if not bot:
-                print(f"[{self.name}] 没有在线Bot可用于发送通知")
-                return
-
-            for user_id in matched_user_ids:
-                if str(user_id) == str(context.user_id) and context.message_type == "private":
-                    continue
-                await bot.send_private_msg(user_id=user_id, message=notify_msg)
-                if DEBUG_MODE:
-                    print(f"[{self.name}] 已发送订阅通知 -> {user_id}")
-
-        except Exception as e:
-            print(f"[{self.name}] 发送订阅通知异常: {e}")
 
     def _build_collector_groups(self) -> Dict[int, List[int]]:
         """构建收集器群组映射（QQ号 -> 群列表）"""
