@@ -239,8 +239,8 @@ class NewsDatabase:
         conn.commit()
         conn.close()
 
-    async def cleanup_old_news(self, retention_seconds: int = 40):
-        """清理 retention_seconds 前的线报数据（异步）"""
+    async def cleanup_old_news(self, retention_seconds: int = 86400):
+        """清理 retention_seconds 前的线报数据（异步），默认保留24小时"""
 
         def _cleanup():
             conn = sqlite3.connect(self.db_file)
@@ -442,8 +442,11 @@ class NewsDatabase:
 news_db = NewsDatabase()
 
 
-async def start_cleanup_task(retention_seconds: int = 40, interval_seconds: int = 10):
-    """启动定时清理任务"""
+async def start_cleanup_task(retention_seconds: int = 86400, interval_seconds: int = 600):
+    """
+    启动定时清理任务。
+    默认保留24小时(86400秒)，每10分钟(600秒)清理一次。
+    """
     while True:
         await asyncio.sleep(interval_seconds)
         await news_db.cleanup_old_news(retention_seconds=retention_seconds)

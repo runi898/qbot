@@ -368,17 +368,17 @@ class TaobaoNewsModule(BaseModule):
         news_id = await news_db.insert_news(result)
         if news_id is None:
             if DEBUG_MODE:
-                print(f"[{self.name}] 数据库去重命中，跳过")
-            return None
-
-        if DEBUG_MODE:
-            print(f"[{self.name}] 线报已保存到数据库，ID: {news_id}")
+                print(f"[{self.name}] 数据库去重命中，继续尝试匹配推送")
+            # 注意：此处不再 return None，以便继续进行下方的订阅关键词匹配推送
+        else:
+            if DEBUG_MODE:
+                print(f"[{self.name}] 线报已保存到数据库，ID: {news_id}")
 
         # 1) 当前群需要回复
         if context.group_id in self.collector.reply_groups:
             print(f"[{self.name}] 当前群 {context.group_id} 需要回复")
             await self._send_to_group(context, context.group_id, result.get("converted_message", ""))
-            return None
+            # 注意：此处不再 return None，以便继续执行后续的订阅推送逻辑
 
         # 2) 转发到目标群（由当前账号发送）
         # 已改为由 NewsForwarderModule 处理，此处不再执行直接转发，避免重复

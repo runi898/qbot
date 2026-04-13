@@ -112,13 +112,16 @@ class SubscriptionManager:
 
     def remove_subscription(self, user_id: int, keyword: str) -> bool:
         """取消订阅"""
-        if news_db.remove_subscription(user_id, keyword):
-            if keyword in self.subscriptions:
-                self.subscriptions[keyword]['user_ids'].discard(user_id)
-                if not self.subscriptions[keyword]['user_ids']:
-                    del self.subscriptions[keyword]
-            return True
-        return False
+        # 先更新数据库
+        db_success = news_db.remove_subscription(user_id, keyword)
+        
+        # 无论数据库是否成功（可能记录已被删），都尝试清理内存缓存以确保一致性
+        if keyword in self.subscriptions:
+            self.subscriptions[keyword]['user_ids'].discard(user_id)
+            if not self.subscriptions[keyword]['user_ids']:
+                del self.subscriptions[keyword]
+        
+        return db_success
 
     def clear_subscriptions(self, user_id: int) -> int:
         """清空订阅"""
@@ -212,25 +215,49 @@ class SubscriptionManager:
         """
         # 确保已初始化
         self.initialize()
-        
+        # 2. 获取匹配的用户
         matched_users = self.get_matches(content)
         if not matched_users:
+            print(f"[Subscription] 线报不匹配任何订阅关键词，跳过推送")
             return
             
-        if exclude_user and exclude_user in matched_users:
-            matched_users.discard(exclude_user)
-            
-        if not matched_users:
-            return
-
+        print(f"[Subscription] 匹配到 {len(matched_users)} 个潜在用户，准备校验并推送")
+        
         # 计算内容哈希，用于推送去重
         content_hash = self._compute_content_hash(content)
-
-        # 过滤掉已经推送过相同内容的用户
+        
+        # 3. 推送逻辑
         new_users = set()
-        for uid in matched_users:
-            if not self._is_push_duplicate(content_hash, uid):
-                new_users.add(uid)
+        for user_id in list(matched_users):
+            # 基础检查
+            if exclude_user and user_id == exclude_user:
+                continue
+            if user_id in self.user_paused:
+                continue
+                
+            # 二次校验：防止缓存与数据库不一致
+            # 如果是该关键词匹配到的，检查数据库中该用户是否真的还有此订阅
+            user_subs = news_db.get_user_subscriptions(user_id)
+            is_valid = False
+            for sub_kw in user_subs:
+                # 简单包含逻辑，可扩展正则
+                if sub_kw in content: 
+                    is_valid = True
+                    break
+            
+            if not is_valid:
+                # 发现缓存过期，尝试清理 (对所有关键词进行清理)
+                print(f"[Subscription] 发现用户 {user_id} 的缓存已失效，正在清理...")
+                for kw in list(self.subscriptions.keys()):
+                    if user_id in self.subscriptions[kw]['user_ids']:
+                        self.subscriptions[kw]['user_ids'].discard(user_id)
+                continue
+
+            # 检查推送去重
+            if self._is_push_duplicate(content_hash, user_id):
+                continue
+            
+            new_users.add(user_id)
 
         if not new_users:
             if DEBUG_MODE:
